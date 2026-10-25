@@ -1,0 +1,56 @@
+# Builds and tests the daemon on Linux, on every supported Node.js version.
+#
+# While package.json takes abb-rws-client from a sibling folder (file:../abb-rws-client),
+# the job checks the client out beside the daemon at CLIENT_REF and builds it there.
+# Once the dependency is a registry range, those two steps skip themselves and the
+# last step installs the packed tarball globally and runs the command: the proof
+# that the installed bin starts on Linux. RELEASING.md says which run to wait for.
+name: CI
+on:
+  push:
+    branches: [master, "release/**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+permissions: { contents: read }
+concurrency: { group: "ci-${{ github.ref }}", cancel-in-progress: true }
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy: { fail-fast: false, matrix: { node: [22, 24] } }
+    env:
+      CLIENT_REPOSITORY: ichbinmeraj/abb-rws-client
+      CLIENT_REF: v1.5.1
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: abb-rws-daemon }
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ matrix.node }}", cache: npm,
+                cache-dependency-path: abb-rws-daemon/package-lock.json }
+      - id: client            # how does package.json name the client?
+        working-directory: abb-rws-daemon
+        run: echo "spec=$(node -p "require('./package.json').dependencies['abb-rws-client']")" >> "$GITHUB_OUTPUT"
+      - if: startsWith(steps.client.outputs.spec, 'file:')
+        uses: actions/checkout@v4
+        with: { repository: "${{ env.CLIENT_REPOSITORY }}", ref: "${{ env.CLIENT_REF }}", path: abb-rws-client }
+      - if: startsWith(steps.client.outputs.spec, 'file:')
+        working-directory: abb-rws-client
+        run: npm ci && npm run build
+      - { working-directory: abb-rws-daemon, run: npm ci }
+      - { working-directory: abb-rws-daemon, run: npm run build }
+      - { working-directory: abb-rws-daemon, run: npm test }
+      - { working-directory: abb-rws-daemon, run: node scripts/release-check.mjs }
+      # The command runs with ABB_RWS_DAEMON_RECORD set, as the release check runs it:
+      # a daemon refuses to start with that variable, so a --help or --version that
+      # regressed to starting one fails at once instead of hanging to the timeout.
+      - working-directory: abb-rws-daemon
+        env: { ABB_RWS_DAEMON_RECORD: "1" }
+        run: node dist/cli.js --version && node dist/cli.js --help
+      - if: "!startsWith(steps.client.outputs.spec, 'file:')"
+        working-directory: abb-rws-daemon
+        env: { ABB_RWS_DAEMON_RECORD: "1" }
+        run: |
+          npm pack --ignore-scripts
+          npm install -g ./abb-rws-daemon-*.tgz
+          abb-rws-daemon --version

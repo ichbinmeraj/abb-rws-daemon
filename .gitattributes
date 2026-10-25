@@ -1,0 +1,8 @@
+# The exported schema ships in the package and its history files are pinned by
+# sha256 over LF text; recordings and fixtures are JSON Lines with LF separators.
+# Keep both LF in every checkout, whatever core.autocrlf says.
+schema/** text eol=lf
+*.jsonl text eol=lf
+# Scripts start with a "#!" line and are imported by the tests; the test runner only
+# accepts that line when it ends in LF. Keep them LF in every checkout too.
+*.mjs text eol=lf

@@ -1,0 +1,84 @@
+{
+  "name": "abb-rws-daemon",
+  "version": "0.1.0",
+  "description": "Local daemon exposing ABB robot controllers as a typed ControllerSnapshot over HTTP and WebSocket. RWS 1.0 (IRC5) and RWS 2.0 (OmniCore).",
+  "license": "Apache-2.0",
+  "author": {
+    "name": "Meraj Safari",
+    "url": "https://github.com/ichbinmeraj"
+  },
+  "homepage": "https://github.com/ichbinmeraj/abb-rws-daemon#readme",
+  "bugs": {
+    "url": "https://github.com/ichbinmeraj/abb-rws-daemon/issues"
+  },
+  "keywords": [
+    "abb",
+    "robot",
+    "rws",
+    "robot-web-services",
+    "irc5",
+    "omnicore",
+    "robotware",
+    "robotstudio",
+    "industrial-robot",
+    "daemon",
+    "websocket"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ichbinmeraj/abb-rws-daemon.git"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./schema/*": "./schema/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "schema",
+    "LICENSE",
+    "NOTICE",
+    "TRADEMARKS.md",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/export-schema.mjs --check",
+    "schema": "node scripts/export-schema.mjs",
+    "capture": "npm run build && node scripts/capture-stream.mjs",
+    "compare": "npm run build && node scripts/compare-recordings.mjs",
+    "sanitize": "npm run build && node scripts/sanitize-recording.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepack": "npm run build && npm test",
+    "release:check": "node scripts/release-check.mjs",
+    "prepublishOnly": "node scripts/release-check.mjs --release",
+    "start": "node dist/cli.js",
+    "dev": "npm run build && node dist/cli.js"
+  },
+  "dependencies": {
+    "@fastify/websocket": "^11.3.1",
+    "abb-rws-client": "^1.5.1",
+    "fastify": "^5.12.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "bin": {
+    "abb-rws-daemon": "dist/cli.js"
+  }
+}

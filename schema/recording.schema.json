@@ -1,0 +1,1151 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:abb-rws-daemon:recording:1",
+  "title": "abb-rws-daemon recording",
+  "description": "The abb-rws-daemon recording file, format version 1: JSON Lines (UTF-8, one JSON object per line, LF), a header line first, then records, each with `kind` as its first member. Frame records carry /v0/stream frames, defined by the snapshot schema (urn:abb-rws-daemon:schema:v0); validate them against the snapshot schema history file of the header's schemaVersion. Readers ignore unknown kinds and unknown fields, and refuse a formatVersion they do not know.",
+  "x-format-version": 1,
+  "x-constants": {
+    "RECORDING_FORMAT": "abb-rws-recording",
+    "RECORDING_FORMAT_VERSION": 1
+  },
+  "definitions": {
+    "RecordingMaskingRule": {
+      "description": "A masking rule, in the order they run: secret-named `keys`, secret\narguments by position (`args`), credential-shaped `text`, secret RAPID\nliterals (`rapid`), known secret `values`, and the `final` check.",
+      "type": "string",
+      "enum": [
+        "keys",
+        "args",
+        "text",
+        "rapid",
+        "values",
+        "final"
+      ]
+    },
+    "RecordedContent": {
+      "description": "What a recording holds: `frames` (the stream frames as consumers received\nthem), `calls` (client methods the daemon called, and the raw I/O\nsubscription events it consumed), `state` (changes of the client's state).",
+      "type": "string",
+      "enum": [
+        "frames",
+        "calls",
+        "state"
+      ]
+    },
+    "RecordedEndReason": {
+      "description": "Why a recording, or one part of it, ended: `stopped`, `duration`,\n`size-limit`, `dir-limit`, `disk-space`, `writer-behind`, `mask-check`,\n`error`, `daemon-stop`, `rotated` (the recording goes on in the next\npart), `closed` and `interrupted` (a stream capture).",
+      "type": "string",
+      "enum": [
+        "stopped",
+        "duration",
+        "size-limit",
+        "dir-limit",
+        "disk-space",
+        "writer-behind",
+        "mask-check",
+        "error",
+        "daemon-stop",
+        "rotated",
+        "closed",
+        "interrupted"
+      ]
+    },
+    "RecordedLimits": {
+      "description": "The limits a recording ran under.",
+      "type": "object",
+      "properties": {
+        "maxFileBytes": {
+          "description": "A part reaching this size was closed and the recording went on in a new part.",
+          "type": "integer",
+          "x-unit": "bytes",
+          "x-ros-name": "max_file_bytes"
+        },
+        "maxTotalBytes": {
+          "description": "All parts together stay within this (`size-limit`).",
+          "type": "integer",
+          "x-unit": "bytes",
+          "x-ros-name": "max_total_bytes"
+        },
+        "maxDirBytes": {
+          "description": "The recordings folder's limit (`dir-limit`).",
+          "type": "integer",
+          "x-unit": "bytes",
+          "x-ros-name": "max_dir_bytes"
+        },
+        "maxRecordBytes": {
+          "description": "The largest line other than a frame.",
+          "type": "integer",
+          "x-unit": "bytes",
+          "x-ros-name": "max_record_bytes"
+        },
+        "minFreeBytes": {
+          "description": "The free-space floor (`disk-space`).",
+          "type": "integer",
+          "x-unit": "bytes",
+          "x-ros-name": "min_free_bytes"
+        },
+        "durationS": {
+          "description": "The recording's duration (`duration`).",
+          "type": "integer",
+          "x-unit": "s",
+          "x-ros-name": "duration_s"
+        }
+      },
+      "required": [
+        "maxFileBytes",
+        "maxTotalBytes",
+        "maxDirBytes",
+        "maxRecordBytes",
+        "minFreeBytes",
+        "durationS"
+      ],
+      "additionalProperties": false
+    },
+    "RecordedDropped": {
+      "description": "Records left out, by kind; every kind is present, zeros included. Frames are never left out.",
+      "type": "object",
+      "properties": {
+        "call": {
+          "type": "integer",
+          "x-unit": "count",
+          "x-ros-name": "call"
+        },
+        "state": {
+          "type": "integer",
+          "x-unit": "count",
+          "x-ros-name": "state"
+        },
+        "sub": {
+          "type": "integer",
+          "x-unit": "count",
+          "x-ros-name": "sub"
+        }
+      },
+      "required": [
+        "call",
+        "state",
+        "sub"
+      ],
+      "additionalProperties": false
+    },
+    "RecordedMasking": {
+      "description": "What masking did over the whole recording: known secret values masked by\nvalue (`values`, their encoded forms `derived`), those too weak to mask by\nvalue (`weakValues`), the records masking changed, the keys it dropped and\nthe lines it refused to write.",
+      "type": "object",
+      "properties": {
+        "values": {
+          "type": "integer",
+          "x-unit": "count",
+          "x-ros-name": "values"
+        },
+        "derived": {
+          "type": "integer",
+          "x-unit": "count",
+          "x-ros-name": "derived"
+        },
+        "weakValues": {
+          "type": "integer",
+          "x-unit": "count",
+          "x-ros-name": "weak_values"
+        },
+        "maskedRecords": {
+          "type": "integer",
+          "x-unit": "count",
+          "x-ros-name": "masked_records"
+        },
+        "droppedKeys": {
+          "type": "integer",
+          "x-unit": "count",
+          "x-ros-name": "dropped_keys"
+        },
+        "refusedLines": {
+          "type": "integer",
+          "x-unit": "count",
+          "x-ros-name": "refused_lines"
+        }
+      },
+      "required": [
+        "values",
+        "derived",
+        "weakValues",
+        "maskedRecords",
+        "droppedKeys",
+        "refusedLines"
+      ],
+      "additionalProperties": false
+    },
+    "RecordedControllerAnswer": {
+      "description": "What the controller answered to a failed call.",
+      "type": "object",
+      "properties": {
+        "httpStatus": {
+          "description": "The HTTP status; null when no answer reached the daemon.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "x-unit": "none",
+          "x-ros-name": "http_status"
+        },
+        "code": {
+          "description": "The controller's own status code; null when its body had none.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "x-unit": "none",
+          "x-ros-name": "code"
+        },
+        "message": {
+          "description": "The controller's own message; null when its body had none.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "x-ros-name": "message"
+        }
+      },
+      "required": [
+        "httpStatus",
+        "code",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "RecordedRefusal": {
+      "description": "The client's account of a refusal (`kind`, `missing`, `grantor`, `fix`, and\nwhatever more it carries), masked.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "x-ros-name": "kind"
+        },
+        "missing": {
+          "type": "string",
+          "x-ros-name": "missing"
+        },
+        "grantor": {
+          "type": "string",
+          "x-ros-name": "grantor"
+        },
+        "fix": {
+          "type": "string",
+          "x-ros-name": "fix"
+        }
+      },
+      "additionalProperties": true,
+      "x-ros": "json"
+    },
+    "RecordedError": {
+      "description": "A call's failure in the daemon's own shape: `code` (the client's error code,\nor one of the daemon's: a reader accepts codes it does not know), `message`,\nand the controller's answer and refusal when there were any.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "x-ros-name": "code"
+        },
+        "message": {
+          "type": "string",
+          "x-ros-name": "message"
+        },
+        "controller": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/RecordedControllerAnswer"
+            }
+          ],
+          "x-ros-name": "controller"
+        },
+        "refusal": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/RecordedRefusal"
+            }
+          ],
+          "x-ros-name": "refusal"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "RecordingSource": {
+      "description": "Who made a recording: the daemon's recorder, or a stream consumer (scripts/capture-stream.mjs).",
+      "type": "string",
+      "enum": [
+        "daemon",
+        "stream-capture"
+      ]
+    },
+    "RecordingVersionInfo": {
+      "description": "A program's version, as recorded in a header.",
+      "type": "object",
+      "properties": {
+        "version": {
+          "description": "The package version; `unknown` when it could not be read.",
+          "type": "string",
+          "x-ros-name": "version"
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "additionalProperties": false
+    },
+    "RecordingControllerHint": {
+      "description": "A controller the daemon was configured with when the part began. A hint\nonly: nothing has been read at launch, so the `controller` records are the\nauthority for the system id, generation and RobotWare.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "x-ros-name": "id"
+        },
+        "systemId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "x-ros-name": "system_id"
+        },
+        "generation": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "rws1",
+            "rws2",
+            null
+          ],
+          "x-ros-name": "generation"
+        },
+        "robotWare": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "x-ros-name": "robot_ware"
+        }
+      },
+      "required": [
+        "id",
+        "systemId",
+        "generation",
+        "robotWare"
+      ],
+      "additionalProperties": false
+    },
+    "RecordingMaskingHeader": {
+      "description": "What masking did, as the header of a part states it when the part begins.",
+      "type": "object",
+      "properties": {
+        "rules": {
+          "description": "The rules applied, in order (a stream capture sees no client calls, so it has no `args`).",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RecordingMaskingRule"
+          },
+          "x-ros-name": "rules"
+        },
+        "values": {
+          "description": "Known secret values masked by value.",
+          "type": "integer",
+          "x-unit": "count",
+          "x-ros-name": "values"
+        },
+        "derived": {
+          "description": "Encoded forms of those values.",
+          "type": "integer",
+          "x-unit": "count",
+          "x-ros-name": "derived"
+        },
+        "weakValues": {
+          "description": "Known values too short or too common to mask by value.",
+          "type": "integer",
+          "x-unit": "count",
+          "x-ros-name": "weak_values"
+        }
+      },
+      "required": [
+        "rules",
+        "values",
+        "derived",
+        "weakValues"
+      ],
+      "additionalProperties": false
+    },
+    "RecordingHeader": {
+      "description": "The first line of every part.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "header",
+          "x-ros-name": "kind"
+        },
+        "format": {
+          "type": "string",
+          "const": "abb-rws-recording",
+          "x-ros-name": "format"
+        },
+        "formatVersion": {
+          "type": "integer",
+          "const": 1,
+          "x-unit": "none",
+          "x-ros-name": "format_version"
+        },
+        "schemaVersion": {
+          "description": "The snapshot schema version of the frames.",
+          "type": "string",
+          "x-ros-name": "schema_version"
+        },
+        "source": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/RecordingSource"
+            }
+          ],
+          "x-ros-name": "source"
+        },
+        "session": {
+          "description": "The recording's name: its files' names without the part suffix.",
+          "type": "string",
+          "x-ros-name": "session"
+        },
+        "part": {
+          "description": "This part's number, from 1.",
+          "type": "integer",
+          "x-unit": "count",
+          "x-ros-name": "part"
+        },
+        "previous": {
+          "description": "The previous part's file name; null for the first.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "x-ros-name": "previous"
+        },
+        "startedAt": {
+          "description": "When this part began.",
+          "type": "string",
+          "format": "date-time",
+          "x-ros-name": "started_at"
+        },
+        "sessionStartedAt": {
+          "description": "When the recording began: `t` counts from here.",
+          "type": "string",
+          "format": "date-time",
+          "x-ros-name": "session_started_at"
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "x-ros-name": "label"
+        },
+        "content": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RecordedContent"
+          },
+          "x-ros-name": "content"
+        },
+        "daemon": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/RecordingVersionInfo"
+            }
+          ],
+          "x-ros-name": "daemon"
+        },
+        "client": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/RecordingVersionInfo"
+            }
+          ],
+          "x-ros-name": "client"
+        },
+        "controllers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RecordingControllerHint"
+          },
+          "x-ros-name": "controllers"
+        },
+        "limits": {
+          "description": "The limits the recording runs under; null for a stream capture.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RecordedLimits"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-ros-name": "limits"
+        },
+        "masking": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/RecordingMaskingHeader"
+            }
+          ],
+          "x-ros-name": "masking"
+        },
+        "sanitized": {
+          "description": "Set by the sanitizer: identifiers replaced, fit for a public fixture.",
+          "type": "boolean",
+          "x-ros-name": "sanitized"
+        }
+      },
+      "required": [
+        "kind",
+        "format",
+        "formatVersion",
+        "schemaVersion",
+        "source",
+        "session",
+        "part",
+        "previous",
+        "startedAt",
+        "sessionStartedAt",
+        "label",
+        "content",
+        "daemon",
+        "client",
+        "controllers",
+        "limits",
+        "masking"
+      ],
+      "additionalProperties": false
+    },
+    "FrameRecord": {
+      "description": "One `/v0/stream` frame exactly as consumers received it: the observed\nstring, byte for byte, unless `masked` says masking changed it.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "frame",
+          "x-ros-name": "kind"
+        },
+        "t": {
+          "type": "integer",
+          "x-unit": "ms",
+          "x-ros-name": "t"
+        },
+        "frame": {
+          "allOf": [
+            {
+              "$ref": "urn:abb-rws-daemon:schema:v0#/definitions/StreamFrame"
+            }
+          ],
+          "x-ros-name": "frame"
+        },
+        "masked": {
+          "description": "How many values masking replaced plus keys it dropped; absent when the frame is unchanged.",
+          "type": "integer",
+          "x-unit": "count",
+          "x-ros-name": "masked"
+        },
+        "resync": {
+          "description": "A snapshot taken by the recorder (the start of every part but the first,\nand after a gap): a reader replaces all state with it, as with any snapshot.",
+          "type": "boolean",
+          "x-ros-name": "resync"
+        }
+      },
+      "required": [
+        "kind",
+        "t",
+        "frame"
+      ],
+      "additionalProperties": false
+    },
+    "ControllerRecord": {
+      "description": "A controller's identity as it became known or changed (the authority for `call.gen`).",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "controller",
+          "x-ros-name": "kind"
+        },
+        "t": {
+          "type": "integer",
+          "x-unit": "ms",
+          "x-ros-name": "t"
+        },
+        "id": {
+          "type": "string",
+          "x-ros-name": "id"
+        },
+        "systemId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "x-ros-name": "system_id"
+        },
+        "generation": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "rws1",
+            "rws2",
+            null
+          ],
+          "x-ros-name": "generation"
+        },
+        "robotWare": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "x-ros-name": "robot_ware"
+        },
+        "identityCheck": {
+          "type": "string",
+          "enum": [
+            "confirmed",
+            "unverified",
+            "mismatch"
+          ],
+          "x-ros-name": "identity_check"
+        }
+      },
+      "required": [
+        "kind",
+        "t",
+        "id",
+        "systemId",
+        "generation",
+        "robotWare",
+        "identityCheck"
+      ],
+      "additionalProperties": false
+    },
+    "CallTarget": {
+      "description": "Where a call went: a controller's manager, the manager of every controller, or a setup step.",
+      "type": "string",
+      "enum": [
+        "manager",
+        "multi",
+        "setup"
+      ]
+    },
+    "CallRecord": {
+      "description": "One client method the daemon called: arguments, outcome and how long it took.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "call",
+          "x-ros-name": "kind"
+        },
+        "t": {
+          "description": "When the call settled; it began `ms` earlier.",
+          "type": "integer",
+          "x-unit": "ms",
+          "x-ros-name": "t"
+        },
+        "target": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/CallTarget"
+            }
+          ],
+          "x-ros-name": "target"
+        },
+        "id": {
+          "description": "The controller's id; null for a setup step.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "x-ros-name": "id"
+        },
+        "gen": {
+          "description": "The controller's generation from its latest `controller` record; null until known.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "rws1",
+            "rws2",
+            null
+          ],
+          "x-ros-name": "gen"
+        },
+        "seq": {
+          "description": "Counts calls in the recording, from 1.",
+          "type": "integer",
+          "x-unit": "count",
+          "x-ros-name": "seq"
+        },
+        "method": {
+          "type": "string",
+          "x-ros-name": "method"
+        },
+        "args": {
+          "description": "The arguments as plain JSON, masked; `***` for a method whose arguments are secret as a whole.",
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {}
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "x-ros-name": "args"
+        },
+        "ms": {
+          "type": "integer",
+          "x-unit": "ms",
+          "x-ros-name": "ms"
+        },
+        "ok": {
+          "type": "boolean",
+          "x-ros-name": "ok"
+        },
+        "result": {
+          "description": "The result as plain JSON, masked (with `ok`).",
+          "x-ros-name": "result"
+        },
+        "error": {
+          "description": "The failure as a snapshot group carries it (without `ok`).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/RecordedError"
+            }
+          ],
+          "x-ros-name": "error"
+        },
+        "masked": {
+          "type": "integer",
+          "x-unit": "count",
+          "x-ros-name": "masked"
+        }
+      },
+      "required": [
+        "kind",
+        "t",
+        "target",
+        "id",
+        "gen",
+        "seq",
+        "method",
+        "args",
+        "ms",
+        "ok"
+      ],
+      "additionalProperties": false
+    },
+    "StateManagerInfo": {
+      "description": "The connection a manager was on when its state was recorded.",
+      "type": "object",
+      "properties": {
+        "port": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "x-unit": "none",
+          "x-ros-name": "port"
+        },
+        "useHttps": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "x-ros-name": "use_https"
+        },
+        "groupPath": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "x-ros-name": "group_path"
+        }
+      },
+      "required": [
+        "port",
+        "useHttps",
+        "groupPath"
+      ],
+      "additionalProperties": false
+    },
+    "IoSignalsDiff": {
+      "description": "The I/O signal table changed: signals added (whole), changed (whole) and removed (by name).",
+      "type": "object",
+      "properties": {
+        "added": {
+          "type": "array",
+          "items": {},
+          "x-ros-name": "added"
+        },
+        "changed": {
+          "type": "array",
+          "items": {},
+          "x-ros-name": "changed"
+        },
+        "removed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-ros-name": "removed"
+        }
+      },
+      "required": [
+        "added",
+        "changed",
+        "removed"
+      ],
+      "additionalProperties": false
+    },
+    "IoSignalsChunk": {
+      "description": "One chunk of the whole I/O signal table; chunks 1 to `chunks` together are the table.",
+      "type": "object",
+      "properties": {
+        "chunk": {
+          "type": "integer",
+          "x-unit": "count",
+          "x-ros-name": "chunk"
+        },
+        "chunks": {
+          "type": "integer",
+          "x-unit": "count",
+          "x-ros-name": "chunks"
+        },
+        "full": {
+          "type": "array",
+          "items": {},
+          "x-ros-name": "full"
+        }
+      },
+      "required": [
+        "chunk",
+        "chunks",
+        "full"
+      ],
+      "additionalProperties": false
+    },
+    "StateRecord": {
+      "description": "The client's state for one controller, as it changed: only the top-level\nkeys that changed (`full`: every key). The event log is never in a state\nrecord (frames and the event reads carry it); the I/O signal table is\nrecorded by signal (`ioSignals`), whole only in chunks.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "state",
+          "x-ros-name": "kind"
+        },
+        "t": {
+          "type": "integer",
+          "x-unit": "ms",
+          "x-ros-name": "t"
+        },
+        "id": {
+          "type": "string",
+          "x-ros-name": "id"
+        },
+        "full": {
+          "description": "Every key, not only those that changed: the first state record per controller per part, and after a gap.",
+          "type": "boolean",
+          "x-ros-name": "full"
+        },
+        "changed": {
+          "description": "Changed keys and their new values, masked.",
+          "type": "object",
+          "additionalProperties": true,
+          "x-ros-name": "changed"
+        },
+        "manager": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/StateManagerInfo"
+            }
+          ],
+          "x-ros-name": "manager"
+        },
+        "ioSignals": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/IoSignalsDiff"
+            },
+            {
+              "$ref": "#/definitions/IoSignalsChunk"
+            }
+          ],
+          "x-ros-name": "io_signals"
+        },
+        "masked": {
+          "type": "integer",
+          "x-unit": "count",
+          "x-ros-name": "masked"
+        }
+      },
+      "required": [
+        "kind",
+        "t",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "SubRecord": {
+      "description": "One raw I/O subscription event the daemon consumed.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "sub",
+          "x-ros-name": "kind"
+        },
+        "t": {
+          "type": "integer",
+          "x-unit": "ms",
+          "x-ros-name": "t"
+        },
+        "id": {
+          "type": "string",
+          "x-ros-name": "id"
+        },
+        "event": {
+          "x-ros-name": "event"
+        },
+        "masked": {
+          "type": "integer",
+          "x-unit": "count",
+          "x-ros-name": "masked"
+        }
+      },
+      "required": [
+        "kind",
+        "t",
+        "id",
+        "event"
+      ],
+      "additionalProperties": false
+    },
+    "GapRecord": {
+      "description": "Records were left out here: `writer-behind` (the disk did not keep up) or\n`mask-check` (a record the final masking check refused). Always followed by\na resync snapshot and `full` state records. Frames are never left out.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "gap",
+          "x-ros-name": "kind"
+        },
+        "t": {
+          "type": "integer",
+          "x-unit": "ms",
+          "x-ros-name": "t"
+        },
+        "why": {
+          "type": "string",
+          "enum": [
+            "writer-behind",
+            "mask-check"
+          ],
+          "x-ros-name": "why"
+        },
+        "kinds": {
+          "description": "What was left out, by kind; every kind is present, zeros included.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/RecordedDropped"
+            }
+          ],
+          "x-ros-name": "kinds"
+        }
+      },
+      "required": [
+        "kind",
+        "t",
+        "why",
+        "kinds"
+      ],
+      "additionalProperties": false
+    },
+    "NoteRecord": {
+      "description": "A line of plain text: why a recording stopped, a rotation.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "note",
+          "x-ros-name": "kind"
+        },
+        "t": {
+          "type": "integer",
+          "x-unit": "ms",
+          "x-ros-name": "t"
+        },
+        "text": {
+          "type": "string",
+          "x-ros-name": "text"
+        }
+      },
+      "required": [
+        "kind",
+        "t",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "RecordingStats": {
+      "description": "Figures about the recorder itself.",
+      "type": "object",
+      "properties": {
+        "stateDiffMsMax": {
+          "description": "The longest a state comparison took.",
+          "type": "integer",
+          "x-unit": "ms",
+          "x-ros-name": "state_diff_ms_max"
+        }
+      },
+      "required": [
+        "stateDiffMsMax"
+      ],
+      "additionalProperties": false
+    },
+    "EndRecord": {
+      "description": "The last line of a part its writer closed. `reason` is `rotated` when the\nnext part goes on, else why the recording ended; a stream capture ends\n`closed` (the daemon closed the stream; `closeCode` says how) or\n`interrupted`.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "end",
+          "x-ros-name": "kind"
+        },
+        "t": {
+          "type": "integer",
+          "x-unit": "ms",
+          "x-ros-name": "t"
+        },
+        "reason": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/RecordedEndReason"
+            }
+          ],
+          "x-ros-name": "reason"
+        },
+        "records": {
+          "description": "Records in this part, the header and this one included.",
+          "type": "integer",
+          "x-unit": "count",
+          "x-ros-name": "records"
+        },
+        "bytes": {
+          "description": "Bytes in this part before this line.",
+          "type": "integer",
+          "x-unit": "bytes",
+          "x-ros-name": "bytes"
+        },
+        "dropped": {
+          "description": "Records left out of this part, by kind (`GET /v0/recording` counts the whole recording).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/RecordedDropped"
+            }
+          ],
+          "x-ros-name": "dropped"
+        },
+        "masking": {
+          "description": "What masking did over the whole recording up to here.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/RecordedMasking"
+            }
+          ],
+          "x-ros-name": "masking"
+        },
+        "stats": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/RecordingStats"
+            }
+          ],
+          "x-ros-name": "stats"
+        },
+        "next": {
+          "description": "The next part's file name; null for the last.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "x-ros-name": "next"
+        },
+        "closeCode": {
+          "description": "The WebSocket close code, for a capture the daemon closed.",
+          "type": "integer",
+          "x-unit": "none",
+          "x-ros-name": "close_code"
+        }
+      },
+      "required": [
+        "kind",
+        "t",
+        "reason",
+        "records",
+        "bytes",
+        "dropped",
+        "masking",
+        "stats",
+        "next"
+      ],
+      "additionalProperties": false
+    },
+    "RecordingLine": {
+      "description": "Any line of a recording.",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/RecordingHeader"
+        },
+        {
+          "$ref": "#/definitions/FrameRecord"
+        },
+        {
+          "$ref": "#/definitions/ControllerRecord"
+        },
+        {
+          "$ref": "#/definitions/CallRecord"
+        },
+        {
+          "$ref": "#/definitions/StateRecord"
+        },
+        {
+          "$ref": "#/definitions/SubRecord"
+        },
+        {
+          "$ref": "#/definitions/GapRecord"
+        },
+        {
+          "$ref": "#/definitions/NoteRecord"
+        },
+        {
+          "$ref": "#/definitions/EndRecord"
+        }
+      ]
+    },
+    "RecordKind": {
+      "description": "Every record kind but the header.",
+      "type": "string",
+      "enum": [
+        "frame",
+        "controller",
+        "call",
+        "state",
+        "sub",
+        "gap",
+        "note",
+        "end"
+      ]
+    }
+  }
+}

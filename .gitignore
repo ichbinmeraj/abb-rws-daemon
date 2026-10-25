@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+*.tgz
+# Recorder output - controller sessions, never committed
+recordings/
+abb-rws-daemon.config.json
+abb-rws-daemon.config.json.tmp
+abb-rws-daemon.config.json.*.tmp

@@ -1,0 +1,16 @@
+[
+  {
+    "version": "0.12",
+    "sha256": "67f8325454b131deb3436875bc88a021565d34a22d1adb69df13e945b4537daf"
+  },
+  {
+    "version": "0.13",
+    "sha256": "9594d0f3be01d63c6d3b5d04f4a39502d46263cf034049758423578c48c8890e",
+    "released": true
+  },
+  {
+    "version": "0.14",
+    "sha256": "733c0eeec9ce7b0b91cc1d02eaec76b9aa12e2c9a0855281aa27c2824cb22d1c",
+    "released": true
+  }
+]

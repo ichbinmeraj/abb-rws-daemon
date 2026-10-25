@@ -2,8 +2,8 @@
 
 ## Supported versions
 
-This project is in early development. Only the latest commit on `master`
-receives security fixes.
+Security fixes go into the latest 0.x release. Earlier releases are not patched:
+update to the latest one.
 
 ## Reporting a vulnerability
 
@@ -18,6 +18,10 @@ an unauthorized party to move a robot, alter RAPID programs, bypass an intended
 safety gate, or intercept controller credentials is in scope - including
 authentication flows, credential storage, TLS handling, and any path that lets
 a write reach a controller without passing the intended confirmation.
+
+For this daemon that includes its access token and the loopback checks, the
+config file that holds controller passwords, and anything secret that ends up
+in a log line, an answer or a recording.
 
 ## Controller behaviour is not this project's scope
 
