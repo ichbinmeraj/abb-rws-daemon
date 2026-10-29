@@ -80,12 +80,17 @@ The first release. It is read-only: the daemon changes nothing on a controller.
 ### Known limits
 
 - Read-only. There is no write route, no write gate and no audit log.
-- Tested on RobotStudio virtual controllers only (RobotWare 6.16, 7.21, 8.1 and
-  8.2); not yet run against a real controller. Those runs used abb-rws-client's
-  1.4.0 code. abb-rws-client 1.4.0 and 1.5.0 were prepared but not published; their
-  changes ship in abb-rws-client 1.5.1, together with later fixes. With 1.5.1, the
-  client this release installs, the daemon passes its own tests; it has not yet been
-  run against a controller with 1.5.1.
+- Tested on RobotStudio virtual controllers (RobotWare 6.16, 7.21, 8.1 and 8.2),
+  not yet run against a real controller. Those runs used abb-rws-client's 1.4.0
+  code. abb-rws-client 1.4.0 and 1.5.0 were prepared but not published. Their
+  changes ship in abb-rws-client 1.5.1, the client this release installs, together
+  with later fixes. With 1.5.1 the daemon passes its own tests.
+- 2026-10-28: the packages as npm serves them, abb-rws-daemon 0.1.0 with
+  abb-rws-client 1.5.1 and abb-rws-mcp 0.1.0 on top, ran against RobotStudio virtual
+  controllers on RobotWare 6.16.03, 7.21.4 and 8.2.1. Every MCP tool and the prompt
+  was called on each controller: 66 checks passed, none failed, and 3 were skipped
+  because no program was running. The daemon logged out of every controller at the
+  end.
 - RobotWare 8: who holds write access is read with abb-rws-client 1.5.1's
   `RobotManager.getWriteAccessStatus()`. With an older client the lock is reported as
   not read, with that reason, the `write-access` capability and the `access` group as

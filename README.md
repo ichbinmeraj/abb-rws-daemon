@@ -752,9 +752,15 @@ controller yet, and a virtual controller does not enforce everything a real one
 does: take what you see on one as evidence about virtual controllers.
 
 The runs behind the table used abb-rws-client's 1.4.0 code. abb-rws-client 1.4.0
-and 1.5.0 were prepared but not published; their changes ship in abb-rws-client
+and 1.5.0 were prepared but not published. Their changes ship in abb-rws-client
 1.5.1, the client this release installs, together with later fixes. With 1.5.1 the
-daemon passes its own tests; it has not yet been run against a controller with it.
+daemon passes its own tests.
+
+On 2026-10-28 the packages as npm serves them, abb-rws-daemon 0.1.0 with
+abb-rws-client 1.5.1 and abb-rws-mcp 0.1.0 on top, ran against RobotStudio virtual
+controllers on RobotWare 6.16.03, 7.21.4 and 8.2.1. Every MCP tool and the prompt
+was called on each controller: 66 checks passed, none failed, and 3 were skipped
+because no program was running. The daemon logged out of every controller at the end.
 
 ## Security notes
 
@@ -905,6 +911,8 @@ Contributions are accepted under the DCO - see [CONTRIBUTING.md](CONTRIBUTING.md
 ## Disclaimer
 
 Independent open-source project by [Meraj Safari](https://github.com/ichbinmeraj).
-ABB, IRC5, OmniCore, RobotWare, RobotStudio and FlexPendant are trademarks of
-ABB Ltd. **This project is not affiliated with, endorsed by, or supported by ABB Ltd.**
-Project names and trademark position: see [TRADEMARKS.md](TRADEMARKS.md).
+ABB is a trademark of ABB Asea Brown Boveri Ltd. IRC5, OmniCore, RobotWare, RobotStudio
+and FlexPendant are trademarks of their respective owners. **This project is not
+affiliated with, endorsed by, sponsored by or supported by ABB, ABB Robotics or any later
+owner of these products.** Project names and trademark position: see
+[TRADEMARKS.md](TRADEMARKS.md).
