@@ -112,7 +112,7 @@ describe('capture-stream.mjs against a daemon', () => {
     expect(lines.map(l => l.kind)).toEqual(['header', 'frame', 'frame', 'frame', 'frame', 'end']);
     const [header, ...rest] = lines;
     expect(header).toMatchObject({
-      kind: 'header', format: 'abb-rws-recording', formatVersion: 1, schemaVersion: '0.14', source: 'stream-capture',
+      kind: 'header', format: 'abb-rws-recording', formatVersion: 1, schemaVersion: '0.15', source: 'stream-capture',
       part: 1, previous: null, label: 'unit', content: ['frames'], client: { version: 'unknown' }, limits: null,
       controllers: [{ id: 'rw7', systemId: 'SYS-7', generation: 'rws2', robotWare: '7.21.4+417' }],
       masking: { rules: [...cap.CAPTURE_MASKING_RULES], values: 1, derived: 0, weakValues: 0 },

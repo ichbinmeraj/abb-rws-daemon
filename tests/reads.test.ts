@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import type { RobotState } from 'abb-rws-client';
+import { RwsError, type RobotState } from 'abb-rws-client';
 import type { ControllerConfig } from '../src/config.js';
 import { ControllerFleet, MODULE_KINDS_CACHE_MS } from '../src/fleet.js';
 import { READ_BURST, READ_RATE_PER_S, ReadLimitError } from '../src/readBudget.js';
 import { registerControllerRoutes } from '../src/routes.js';
-import { READ_CACHE_MS, READS_IN_FLIGHT_MAX, TOKEN_HEADER } from '../src/schema/v0.js';
+import {
+  RAPID_VALUE_MAX, RAPID_VALUE_RESOURCE, READ_CACHE_MS, READS_IN_FLIGHT_MAX, TOKEN_HEADER, type RapidSymbolValue,
+} from '../src/schema/v0.js';
 import { createServer } from '../src/server.js';
 
 /** The daemon's access token in these tests. */
@@ -70,6 +72,17 @@ function fakeManager() {
     searchSignals: (criteria: object) => {
       m.searches.push(criteria);
       return m.request('search', () => [{ name: 'do_found', type: 'DO', value: '0', lvalue: '0' }]);
+    },
+    /** What a RAPID value read answers, by symbol name: the client's text, or an error to throw. */
+    values: {} as Record<string, string | Error>,
+    symbols: [] as string[],
+    getRapidVariable: (task: string, module: string, symbol: string) => {
+      m.symbols.push(`${task}/${module}/${symbol}`);
+      return m.request(`value:${symbol}`, () => {
+        const v = m.values[symbol] ?? 'FALSE';
+        if (v instanceof Error) { throw v; }
+        return v;
+      });
     },
   };
   return m;
@@ -321,6 +334,94 @@ describe('a controller being removed', () => {
     await f.moduleSource(ID, 'T_ROB1', 'MainModule');
     expect(mgr.texts).toHaveLength(2);
     expect(mgr.listings).toHaveLength(2);
+  });
+});
+
+describe('RAPID values on the read budget', () => {
+  it('the same symbol asked many times at once is read once, kept READ_CACHE_MS, with the time of that read', async () => {
+    const mgr = fakeManager();
+    const g = gate();
+    mgr.gate = g.promise;
+    const f = fleetWith(mgr);
+    const asks = Array.from({ length: 5 }, () => f.rapidSymbol(ID, 'T_ROB1', 'MainModule', 'partPresent'));
+    await settle();
+    await vi.advanceTimersByTimeAsync(1_500);
+    g.open();
+    const answers = await Promise.all(asks);
+    const readAt = new Date(T0 + 1_500).toISOString();
+    for (const a of answers) {
+      expect(a).toEqual({
+        task: 'T_ROB1', module: 'MainModule', symbol: 'partPresent', value: 'FALSE', truncated: false,
+        resource: RAPID_VALUE_RESOURCE.rws2, readAt,
+      });
+    }
+    expect(mgr.symbols).toEqual(['T_ROB1/MainModule/partPresent']);
+    // Each caller gets its own copy, and an answer from memory keeps the time of the read it shares.
+    (answers[0] as RapidSymbolValue).value = 'changed by a caller';
+    await vi.advanceTimersByTimeAsync(READ_CACHE_MS - 1);
+    expect(await f.rapidSymbol(ID, 'T_ROB1', 'MainModule', 'partPresent')).toMatchObject({ value: 'FALSE', readAt });
+    expect(mgr.symbols).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await f.rapidSymbol(ID, 'T_ROB1', 'MainModule', 'partPresent')).toMatchObject({ readAt: new Date(T0 + 1_500 + READ_CACHE_MS).toISOString() });
+    expect(mgr.symbols).toHaveLength(2);
+  });
+
+  it('names the resource of the generation the link speaks: RWS 1.0 puts data before the symbol', async () => {
+    const mgr = fakeManager();
+    mgr.currentUseHttps = false;
+    const f = fleetWith(mgr);
+    expect((await f.rapidSymbol(ID, 'T_ROB1', 'user', 'reg1')) as RapidSymbolValue)
+      .toMatchObject({ resource: '/rw/rapid/symbol/data/RAPID/{task}/{module}/{symbol}' });
+    expect(RAPID_VALUE_RESOURCE.rws2).toBe('/rw/rapid/symbol/RAPID/{task}/{module}/{symbol}/data');
+  });
+
+  it('the controller`s text as it came: a string keeps its quotes, nothing is converted or trimmed', async () => {
+    const mgr = fakeManager();
+    mgr.values = { s: '"a ""quoted"" word"', n: '-0.5', rt: '[[1,2,3],[1,0,0,0],[0,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]]' };
+    const f = fleetWith(mgr);
+    for (const [symbol, text] of Object.entries(mgr.values)) {
+      expect((await f.rapidSymbol(ID, 'T_ROB1', 'MainModule', symbol)) as RapidSymbolValue).toMatchObject({ value: text, truncated: false });
+    }
+  });
+
+  it('an answer with no value text is no-value, never an empty value', async () => {
+    const mgr = fakeManager();
+    mgr.values = { bigArray: '' };
+    const f = fleetWith(mgr);
+    expect(await f.rapidSymbol(ID, 'T_ROB1', 'MainModule', 'bigArray')).toBe('no-value');
+  });
+
+  it(`a value longer than ${RAPID_VALUE_MAX} characters is cut there and marked`, async () => {
+    const mgr = fakeManager();
+    mgr.values = { long: `[${'1,'.repeat(RAPID_VALUE_MAX)}1]`, exact: 'x'.repeat(RAPID_VALUE_MAX) };
+    const f = fleetWith(mgr);
+    const long = (await f.rapidSymbol(ID, 'T_ROB1', 'MainModule', 'long')) as RapidSymbolValue;
+    expect(long.truncated).toBe(true);
+    expect(long.value).toHaveLength(RAPID_VALUE_MAX);
+    expect(long.value).toBe((mgr.values.long as string).slice(0, RAPID_VALUE_MAX));
+    expect(await f.rapidSymbol(ID, 'T_ROB1', 'MainModule', 'exact')).toMatchObject({ truncated: false });
+  });
+
+  it('the controller`s refusal passes through as the client raised it, and is not kept', async () => {
+    const mgr = fakeManager();
+    mgr.values = { gone: new RwsError('Resource does not exist on the controller: HTTP 404 from GET /rw/rapid/symbol/RAPID/T_ROB1/MainModule/gone/data (Symbol not found)', 'RESOURCE_NOT_FOUND', 404, '{}', -1073442816, 'Symbol not found') };
+    const f = fleetWith(mgr);
+    await expect(f.rapidSymbol(ID, 'T_ROB1', 'MainModule', 'gone')).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND', controllerCode: -1073442816 });
+    await expect(f.rapidSymbol(ID, 'T_ROB1', 'MainModule', 'gone')).rejects.toBeInstanceOf(RwsError);
+    expect(mgr.symbols).toHaveLength(2);
+  });
+
+  it('values share the budget with module sources and searches; an unknown controller is null and costs nothing', async () => {
+    const mgr = fakeManager();
+    mgr.gate = gate().promise;
+    const f = fleetWith(mgr);
+    void f.rapidSymbol(ID, 'T_ROB1', 'MainModule', 'a');
+    void f.moduleSource(ID, 'T_ROB1', 'MainModule');
+    await settle();
+    await expect(f.rapidSymbol(ID, 'T_ROB1', 'MainModule', 'b')).rejects.toMatchObject({ limit: 'in-flight' });
+    await expect(f.searchIoSignals(ID, { type: 'DI' })).rejects.toMatchObject({ limit: 'in-flight' });
+    expect(mgr.symbols).toEqual(['T_ROB1/MainModule/a']);
+    expect(await f.rapidSymbol('nope', 'T_ROB1', 'MainModule', 'a')).toBeNull();
   });
 });
 

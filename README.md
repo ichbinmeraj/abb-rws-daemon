@@ -8,8 +8,8 @@ the same state instead of opening a session of its own. It is built on
 [abb-rws-client](https://github.com/ichbinmeraj/abb-rws-client), and it is
 read-only: it changes nothing on a controller.
 
-> **Status:** 0.1.0. Read-only. Tested on RobotStudio virtual controllers; not yet
-> run against a real controller. Snapshot schema 0.14. The routes under `/v0` may
+> **Status:** 0.1.1. Read-only. Tested on RobotStudio virtual controllers; not yet
+> run against a real controller. Snapshot schema 0.15. The routes under `/v0` may
 > still change before 1.0. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 **Read-only today.** The daemon logs in to a controller, reads, subscribes to its
@@ -31,13 +31,13 @@ and is untested.
 Run it without installing it:
 
 ```sh
-npx abb-rws-daemon@0.1.0 --config ./abb-rws-daemon.config.json
+npx abb-rws-daemon@0.1.1 --config ./abb-rws-daemon.config.json
 ```
 
 Or install the command once and run that:
 
 ```sh
-npm install -g abb-rws-daemon@0.1.0
+npm install -g abb-rws-daemon@0.1.1
 abb-rws-daemon --config ./abb-rws-daemon.config.json
 ```
 
@@ -294,6 +294,7 @@ Module source, the full signal table and the event history have routes of their 
 | `POST /v0/controllers` | Add a controller: `{ host, port, useHttps, username, password }`, optionally `name`, `id` and `systemId`. 409 `ALREADY_ADDED` or `ID_TAKEN` |
 | `DELETE /v0/controllers/:id` | Remove a controller and log out of it |
 | `GET /v0/controllers/:id/rapid/tasks/:task/modules/:module` | A module's RAPID source. On the controller's read budget (below) |
+| `GET /v0/controllers/:id/rapid/tasks/:task/modules/:module/symbols/:symbol` | One RAPID data symbol's value, as RAPID text (see RAPID values below). 502 `VALUE_NOT_READ` when the controller answers with no value. On the controller's read budget |
 | `POST /v0/controllers/:id/motion/watch` | Start or renew a motion watch lease: joint positions and the pose are sampled at the watch rate while any lease is held. Renew it every `leaseMs / 2`. Optional body `{ leaseId }` (see below) |
 | `POST /v0/controllers/:id/io/watch` | `{ signals: [...], leaseId? }`: start or renew an I/O watch lease. The list replaces that lease's set (an empty list leaves it holding none); the daemon watches the union of every lease's set. Refused names come back in `rejected` with the reason |
 | `GET /v0/controllers/:id/io/signals` | The controller's signal table, or a search by `name`, `device`, `network`, `category` or `type`. 503 `NOT_READY` with `Retry-After` while the table has not been read on the current connection. A search is on the controller's read budget (below); the table is served from memory |
@@ -337,14 +338,28 @@ may serve its motion and I/O watches on every controller, and after its lease ra
 out, or the daemon restarted, sending it again opens that lease again under the
 same id.
 
-**Reads on demand have a budget** per controller. A module's source and a signal
-search are read from the controller when a consumer asks, through the same session
+**Reads on demand have a budget** per controller. A module's source, a RAPID value
+and a signal search are read from the controller when a consumer asks, through the same session
 and request queue as the daemon's own sampling, so the daemon limits them: at most 2
 are out per controller at a time, and together they make about 2 controller requests
 a second (in bursts of up to 4). A request identical to one still out shares its
 answer, and an answer is served from memory for up to 2 s. A request the budget has
 no room for is answered 429 `READ_LIMIT` with a `Retry-After`, and nothing is sent
 to the controller.
+
+**RAPID values.** `GET /v0/controllers/:id/rapid/tasks/:task/modules/:module/symbols/:symbol`
+reads the value of one data symbol (a `VAR`, `PERS` or `CONST`) and answers it as
+the controller writes it, as RAPID text: a `num` as `0`, a record such as a
+`tooldata` as one bracketed text, and a `string` with its double quotes. The answer
+is `{ task, module, symbol, value, truncated, resource, readAt }`, where `resource`
+names the controller resource the value was read from, with `{task}`, `{module}` and
+`{symbol}` left as placeholders. A value longer than 16384 characters is cut there
+and says `truncated: true`. When the controller answers the read with no value at
+all, as it does for an array over its read limit and for a type with no printable
+value, the route gives 502 `VALUE_NOT_READ` and never an empty value. A symbol or a
+module the controller does not know gives 404 `RESOURCE_NOT_FOUND`. Task, module and
+symbol are RAPID names: a letter, then up to 31 letters, digits or underscores. The
+read is on the read budget above.
 
 **Errors** are JSON `{ error, code }`. A controller failure carries the client's
 error code and an HTTP status that describes the controller or the request; 500
@@ -619,8 +634,9 @@ daemon's calls to the client as they pass.
 whoever holds a lock. Everything is masked on a copy as it is captured: values
 under secret-named keys, secret arguments, credential-shaped text (header lines,
 Basic, Bearer and Digest credentials, credentials in URLs, `key=value` pairs),
-string literals assigned to secret-named RAPID identifiers (`pwd := "...";`), and
-every known password and the token, with their encoded forms, wherever they occur. A
+string literals assigned to secret-named RAPID identifiers (`pwd := "...";`), the
+value of a secret-named RAPID symbol read through the value route (it is recorded as
+left out), and every known password and the token, with their encoded forms, wherever they occur. A
 known value too short or too common to mask by value (an all-digit PIN, a word the
 controller's own texts contain) is counted in `masking.weakValues` and logged as a
 warning; it is still masked by key and by shape. Not masked: user names, hosts and
@@ -727,7 +743,7 @@ abb-rws-daemon --replay ~/.config/abb-rws-daemon/recordings/rec-20261004T153012Z
 
 `schema/v0.schema.json` (JSON Schema draft-07, `$id` `urn:abb-rws-daemon:schema:v0`)
 describes the snapshot, the stream frames and every answer; `x-schema-version` names
-the exact minor (0.14 in this release), and each released minor is kept under
+the exact minor (0.15 in this release), and each released minor is kept under
 `schema/history/`. Every number names its unit (`x-unit`, or `x-unit-from` for joint
 values, whose unit each joint names), and every time is `format: date-time`, in UTC.
 `schema/recording.schema.json` describes the recording format. Both ship in the
@@ -753,14 +769,19 @@ does: take what you see on one as evidence about virtual controllers.
 
 The runs behind the table used abb-rws-client's 1.4.0 code. abb-rws-client 1.4.0
 and 1.5.0 were prepared but not published. Their changes ship in abb-rws-client
-1.5.1, the client this release installs, together with later fixes. With 1.5.1 the
-daemon passes its own tests.
+1.5.1 and later, together with later fixes. This release installs abb-rws-client
+1.5.3, and with it the daemon passes its own tests.
 
 On 2026-10-28 the packages as npm serves them, abb-rws-daemon 0.1.0 with
 abb-rws-client 1.5.1 and abb-rws-mcp 0.1.0 on top, ran against RobotStudio virtual
 controllers on RobotWare 6.16.03, 7.21.4 and 8.2.1. Every MCP tool and the prompt
 was called on each controller: 66 checks passed, none failed, and 3 were skipped
 because no program was running. The daemon logged out of every controller at the end.
+
+On 2026-10-30 the RAPID value route of 0.1.1 read a `num`, a `tooldata`, a
+`wobjdata` and a `loaddata` on a RobotWare 6.16.03 virtual controller, answered
+404 for a symbol and for a module that were not there, and gave two identical reads
+sent at once the same answer.
 
 ## Security notes
 
@@ -862,7 +883,7 @@ WantedBy=multi-user.target
 ```
 
 - Create the account first (for example `sudo useradd --system abb-rws`), and
-  install the daemon for every account: `sudo npm install -g abb-rws-daemon@0.1.0`.
+  install the daemon for every account: `sudo npm install -g abb-rws-daemon@0.1.1`.
 - The two absolute paths in `ExecStart` are examples: `command -v node` and
   `npm root -g` give yours.
 - `%S` is `/var/lib` for a system unit. A consumer on the same machine reads the

@@ -125,6 +125,19 @@ function fakeFleet(initial: ControllerConfig[] = []): FleetLike & {
       if (module === 'Slow') { throw new ReadLimitError(id, 3, 'rate'); }
       return { task, module, kind: module === 'BASE' ? 'system' : 'program', text: 'MODULE X\nENDMODULE', changeCount: 3 };
     },
+    rapidSymbol: async (id, task, module, symbol) => {
+      if (!map.has(id)) { return null; }
+      if (symbol === 'gone') {
+        throw new RwsError('Resource does not exist on the controller: HTTP 404 from GET /rw/rapid/symbol/RAPID/T_ROB1/MainModule/gone/data (Symbol not found)',
+          'RESOURCE_NOT_FOUND', 404, '<html>raw</html>', -1073442816, 'Symbol not found');
+      }
+      if (symbol === 'bigArray') { return 'no-value'; }
+      if (symbol === 'busy') { throw new ReadLimitError(id, 1, 'in-flight'); }
+      return {
+        task, module, symbol, value: '"a ""b"""', truncated: false,
+        resource: '/rw/rapid/symbol/RAPID/{task}/{module}/{symbol}/data', readAt: '2026-09-23T19:59:58.000Z',
+      };
+    },
   };
 }
 
@@ -152,7 +165,7 @@ describe('GET /v0/controllers', () => {
     const res = await app.inject({ method: 'GET', url: '/v0/controllers', headers: LOCAL });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.schemaVersion).toBe('0.14');
+    expect(body.schemaVersion).toBe('0.15');
     expect(body.observedAt).toBe('2026-09-23T20:00:00.000Z');
     expect(body.controllers.map((c: { id: string }) => c.id)).toEqual(['rw7', 'rw8']);
     expect(res.body).not.toContain(SECRET);
@@ -749,6 +762,97 @@ describe('GET /v0/controllers/:id/rapid/tasks/:task/modules/:module', () => {
       const res = await app.inject({ method: 'GET', url: bad, headers: LOCAL });
       expect(res.statusCode).toBe(400);
     }
+  });
+});
+
+describe('GET /v0/controllers/:id/rapid/tasks/:task/modules/:module/symbols/:symbol', () => {
+  const url = (id: string, symbol: string, task = 'T_ROB1', module = 'MainModule') =>
+    `/v0/controllers/${id}/rapid/tasks/${task}/modules/${module}/symbols/${symbol}`;
+
+  it('returns the value as the controller wrote it, with the resource it was read from and when', async () => {
+    await build(fakeFleet([cfg('rw7', 9403)]));
+    const res = await app.inject({ method: 'GET', url: url('rw7', 'partPresent'), headers: LOCAL });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      task: 'T_ROB1', module: 'MainModule', symbol: 'partPresent', value: '"a ""b"""', truncated: false,
+      resource: '/rw/rapid/symbol/RAPID/{task}/{module}/{symbol}/data', readAt: '2026-09-23T19:59:58.000Z',
+    });
+  });
+
+  it('404 NO_CONTROLLER for an unknown controller', async () => {
+    await build(fakeFleet([cfg('rw7', 9403)]));
+    const res = await app.inject({ method: 'GET', url: url('nope', 'partPresent'), headers: LOCAL });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).toBe('NO_CONTROLLER');
+  });
+
+  it('a symbol the controller does not find: 404 with the controller`s own code, and nothing raw', async () => {
+    await build(fakeFleet([cfg('rw7', 9403)]));
+    const res = await app.inject({ method: 'GET', url: url('rw7', 'gone'), headers: LOCAL });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({
+      code: 'RESOURCE_NOT_FOUND',
+      controller: { httpStatus: 404, code: -1073442816, message: 'Symbol not found' },
+    });
+    expect(res.body).not.toContain('<html>');
+  });
+
+  it('502 VALUE_NOT_READ when the controller answered with no value text: no value field at all', async () => {
+    await build(fakeFleet([cfg('rw7', 9403)]));
+    const res = await app.inject({ method: 'GET', url: url('rw7', 'bigArray'), headers: LOCAL });
+    expect(res.statusCode).toBe(502);
+    expect(res.json()).toEqual({
+      error: 'the controller answered the read of T_ROB1/MainModule/bigArray with no value'
+        + ' (it does so for an array over its read limit, and for a type with no printable value)',
+      code: 'VALUE_NOT_READ',
+    });
+  });
+
+  it('429 READ_LIMIT with a Retry-After when the controller`s read budget has no room', async () => {
+    await build(fakeFleet([cfg('rw7', 9403)]));
+    const res = await app.inject({ method: 'GET', url: url('rw7', 'busy'), headers: LOCAL });
+    expect(res.statusCode).toBe(429);
+    expect(res.headers['retry-after']).toBe('1');
+    expect(res.json().code).toBe('READ_LIMIT');
+  });
+
+  it('refuses a task, module or symbol name that is not a RAPID identifier, before asking the fleet', async () => {
+    const fleet = fakeFleet([cfg('rw7', 9403)]);
+    let asked = 0;
+    await build({ ...fleet, rapidSymbol: async (...a) => { asked++; return fleet.rapidSymbol(...a); } });
+    for (const bad of [
+      url('rw7', 'reg1%7B2%7D'), url('rw7', '..%2Fx'), url('rw7', '1st'), url('rw7', 'A'.repeat(33)),
+      url('rw7', 'reg1', 'T_ROB1', 'Main%2FModule'), url('rw7', 'reg1', 'T ROB1'),
+    ]) {
+      const res = await app.inject({ method: 'GET', url: bad, headers: LOCAL });
+      expect(res.statusCode, bad).toBe(400);
+    }
+    expect(asked).toBe(0);
+    const longest = await app.inject({ method: 'GET', url: url('rw7', 'A'.repeat(32)), headers: LOCAL });
+    expect(longest.statusCode).toBe(200);
+  });
+
+  it('409 IDENTITY_MISMATCH: no value is read from a stranger on the saved port', async () => {
+    const fleet = fakeFleet([cfg('rw7', 9403)]);
+    let asked = false;
+    await build({
+      ...fleet,
+      get: id => {
+        const s = fleet.get(id);
+        return s && { ...s, link: { ...s.link, identityCheck: { status: 'mismatch', expected: '{A}', actual: '{B}' } } };
+      },
+      rapidSymbol: async (...a) => { asked = true; return fleet.rapidSymbol(...a); },
+    });
+    const res = await app.inject({ method: 'GET', url: url('rw7', 'partPresent'), headers: LOCAL });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('IDENTITY_MISMATCH');
+    expect(asked).toBe(false);
+  });
+
+  it('needs the access token like every route but health', async () => {
+    await build(fakeFleet([cfg('rw7', 9403)]));
+    const res = await app.inject({ method: 'GET', url: url('rw7', 'partPresent'), headers: { host: LOCAL.host } });
+    expect(res.statusCode).toBe(401);
   });
 });
 

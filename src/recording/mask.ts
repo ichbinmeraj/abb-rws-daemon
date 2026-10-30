@@ -136,6 +136,24 @@ export function isSecretMethod(name: string): boolean {
 }
 
 /**
+ * Client methods whose result is a RAPID value, with the position of the
+ * symbol's name among their arguments.
+ */
+export const RAPID_VALUE_READS: Readonly<Record<string, number>> = Object.freeze({ getRapidVariable: 2 });
+
+/**
+ * True for a call that reads a RAPID value from a symbol whose name names a
+ * secret (`ftpPassword`): its result is recorded as `{"$omitted": "secret"}`,
+ * as rule 3b masks the same value in a module's source. `args` as recorded
+ * (a symbol name passes the rules unchanged).
+ */
+export function isSecretRapidValue(method: string, args: unknown): boolean {
+  const at = Object.hasOwn(RAPID_VALUE_READS, method) ? RAPID_VALUE_READS[method]! : -1;
+  const name = at >= 0 && Array.isArray(args) ? args[at] : undefined;
+  return typeof name === 'string' && isSecretKey(name);
+}
+
+/**
  * Client methods with a secret parameter that has no key: the parameter's
  * position. Checked against the client's own parameter names by a test, so a
  * new method with a secret parameter cannot slip through.

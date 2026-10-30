@@ -24,7 +24,7 @@ import {
   type TappedManagerView,
 } from './contract.js';
 import {
-  MASKING_RULES, SecretValues, isSecretMethod, maskCallArgs, maskFrame, maskRecordValue, toPlainJson, type Json,
+  MASKING_RULES, SecretValues, isSecretMethod, isSecretRapidValue, maskCallArgs, maskFrame, maskRecordValue, toPlainJson, type Json,
 } from './mask.js';
 import {
   FRAME_LINE_MAX_BYTES, RECORDING_LIMIT_DEFAULTS, RecordingWriter, freeDiskBytes, limitsProblem, plainError,
@@ -833,7 +833,8 @@ class RecordingSession implements ClientTapSink {
       args: masked.args as Json, ms, ok: outcome.ok,
     };
     if (outcome.ok) {
-      rec.result = isSecretMethod(method) ? { $omitted: 'secret' } : toPlainJson(outcome.result);
+      rec.result = isSecretMethod(method) || isSecretRapidValue(method, masked.args)
+        ? { $omitted: 'secret' } : toPlainJson(outcome.result);
     } else {
       // The daemon's own shape for a failure, typed and masked as on the wire.
       rec.error = toPlainJson(groupError(outcome.error));

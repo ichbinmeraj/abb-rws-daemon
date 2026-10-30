@@ -15,7 +15,7 @@ import { ReplayModeError } from './recording/contract.js';
 import {
   EVENTS_PAGE_DEFAULT, EVENTS_PAGE_MAX, SCHEMA_VERSION, WATCH_LEASES_MAX,
   type ControllerList, type ControllerSnapshot, type EventsPage, type IoWatch, type IoWatchRequest, type MotionWatch,
-  type MotionWatchRequest, type RapidModuleSource, type ShutdownAnswer,
+  type MotionWatchRequest, type RapidModuleSource, type RapidSymbolValue, type ShutdownAnswer,
 } from './schema/v0.js';
 
 export interface RouteDeps {
@@ -136,6 +136,34 @@ export async function registerControllerRoutes(app: FastifyInstance, deps: Route
     const src = await deps.fleet.moduleSource(req.params.id, req.params.task, req.params.module);
     return src ?? reply.code(404).send(notFound(req.params.id));
   });
+
+  // A RAPID data symbol's current value (schema 0.15), read from the
+  // controller on request, on the same read budget as a module's source.
+  // The value is the controller's own text; an answer without one is a 502,
+  // never an empty value a consumer could show as the variable's.
+  app.get<{ Params: { id: string; task: string; module: string; symbol: string } }>(
+    '/v0/controllers/:id/rapid/tasks/:task/modules/:module/symbols/:symbol', {
+      schema: {
+        params: {
+          type: 'object', required: ['id', 'task', 'module', 'symbol'],
+          properties: { id: { type: 'string' }, task: RAPID_NAME, module: RAPID_NAME, symbol: RAPID_NAME },
+        },
+      },
+    }, async (req, reply): Promise<RapidSymbolValue | void> => {
+      const { id, task, module, symbol } = req.params;
+      const snap = deps.fleet.get(id);
+      if (!snap) { return reply.code(404).send(notFound(id)); }
+      if (snap.link.identityCheck.status === 'mismatch') { return reply.code(409).send(mismatch(snap)); }
+      const value = await deps.fleet.rapidSymbol(id, task, module, symbol);
+      if (value === 'no-value') {
+        return reply.code(502).send({
+          error: `the controller answered the read of ${task}/${module}/${symbol} with no value`
+            + ' (it does so for an array over its read limit, and for a type with no printable value)',
+          code: 'VALUE_NOT_READ',
+        });
+      }
+      return value ?? reply.code(404).send(notFound(id));
+    });
 
   // A watch lease's id (schema 0.6): NEW_LEASE, or one a grant returned.
   const LEASE_ID_FIELD = { type: 'string', pattern: LEASE_ID.source } as const;

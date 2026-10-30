@@ -1,4 +1,4 @@
-import { MultiRobotManager, RobotManager, setLogger } from 'abb-rws-client';
+import { MultiRobotManager, RobotManager, RwsError, setLogger } from 'abb-rws-client';
 import type { ElogMessage, RobotState, Signal, SubscriptionEvent, SubscriptionResource } from 'abb-rws-client';
 import {
   accessGroup, accessRetryMs, accessSignature, answeredWord, clientGeneration, domainOf, lockFromMastership, lockFromWriteAccess,
@@ -30,10 +30,10 @@ import { ReadBudget } from './readBudget.js';
 import type { ClientTapSink, TapHost } from './recording/contract.js';
 import { ClientTap } from './recording/tap.js';
 import {
-  ACCESS_READ_MS, ACCESS_READ_SLOW_MS, CLOCK_REFRESH_MS, READ_CACHE_MS,
+  ACCESS_READ_MS, ACCESS_READ_SLOW_MS, CLOCK_REFRESH_MS, RAPID_VALUE_MAX, RAPID_VALUE_RESOURCE, READ_CACHE_MS,
   type AccessGeneration, type ControllerSnapshot, type EventsPage, type Generation, type GroupError, type IoWatch, type LinkGroup,
   type LinkQuality, type MotionJoint, type MotionPose,
-  type MotionUnitInfo, type MotionWatch, type RapidGroup, type RapidModuleSource, type RapidPointer,
+  type MotionUnitInfo, type MotionWatch, type RapidGroup, type RapidModuleSource, type RapidPointer, type RapidSymbolValue,
 } from './schema/v0.js';
 
 /** The minimum a log sink must accept. Fastify's logger satisfies it. */
@@ -302,6 +302,12 @@ export interface FleetLike {
    * id. Throws RwsError from the controller, ReadLimitError when the budget has no room for the read.
    */
   moduleSource(id: string, task: string, module: string): Promise<RapidModuleSource | null>;
+  /**
+   * A RAPID data symbol's current value, on the controller's read budget; null when there is no controller with that
+   * id, 'no-value' when the controller answered with no value text. Throws RwsError from the controller,
+   * ReadLimitError when the budget has no room for the read.
+   */
+  rapidSymbol(id: string, task: string, module: string, symbol: string): Promise<RapidSymbolValue | null | 'no-value'>;
   /**
    * Start or renew a motion watch lease: the anonymous one without `leaseId`, else the caller's own (NEW_LEASE opens
    * one). Null when there is no controller with that id; 'lease-limit' when the lease would be one more than the
@@ -955,6 +961,36 @@ export class ControllerFleet implements FleetLike, TapHost {
       return { task, module, kind, text, changeCount: typeof changeCount === 'number' ? changeCount : null };
     }, { cost, cacheMs: READ_CACHE_MS });
     return { ...src };   // the kept answer is shared: never hand out the object itself
+  }
+
+  /**
+   * A RAPID data symbol's current value, on the controller's read budget
+   * (one request): identical requests in flight share one read, and an
+   * answer is served from memory for READ_CACHE_MS; a reconnect starts
+   * afresh. The value is the client's text as it came, cut at
+   * RAPID_VALUE_MAX. An empty text is 'no-value', never a value: the client
+   * hands one back where the controller sent no value (RW 8.2.1 for an array
+   * over its read limit, RW 7.21.4 for a type with no printable value). Null
+   * for an unknown controller or one being removed.
+   */
+  async rapidSymbol(id: string, task: string, module: string, symbol: string): Promise<RapidSymbolValue | null | 'no-value'> {
+    const manager = this.managerOf(id);
+    if (!manager || !this.configs.has(id) || this.stopping.has(id)) { return null; }
+    this.noteLink(id);
+    const read = await this.reads.run(id, `symbol|${this.linkEpoch.get(id) ?? 0}|${task}|${module}|${symbol}`, async () => {
+      const value = await manager.getRapidVariable(task, module, symbol);
+      const generation = generationOf(manager);
+      // The answer names the resource of the generation that read it; a link gone in the meantime names none.
+      if (!generation) { throw new RwsError('the link to the controller dropped during the read', 'NOT_CONNECTED'); }
+      return { value, resource: RAPID_VALUE_RESOURCE[generation], readAt: new Date(Date.now()).toISOString() };
+    }, { cacheMs: READ_CACHE_MS });
+    if (read.value.length === 0) { return 'no-value'; }
+    const truncated = read.value.length > RAPID_VALUE_MAX;
+    return {
+      task, module, symbol,
+      value: truncated ? read.value.slice(0, RAPID_VALUE_MAX) : read.value,
+      truncated, resource: read.resource, readAt: read.readAt,
+    };
   }
 
   /**

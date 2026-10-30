@@ -68,7 +68,7 @@ describe('starting and the first lines', () => {
     for (const raw of text.trimEnd().split('\n')) { expect(raw.startsWith('{"kind":')).toBe(true); }
     const [header, frame, c7, c6] = parseJsonl(text);
     expect(header).toEqual({
-      kind: 'header', format: 'abb-rws-recording', formatVersion: 1, schemaVersion: '0.14', source: 'daemon',
+      kind: 'header', format: 'abb-rws-recording', formatVersion: 1, schemaVersion: '0.15', source: 'daemon',
       session: 'rec-20261004T153012Z-live-3min', part: 1, previous: null, startedAt: '2026-10-04T15:30:12.345Z',
       sessionStartedAt: '2026-10-04T15:30:12.345Z', label: 'live-3min', content: ['frames', 'calls', 'state'],
       daemon: { version: '0.1.0-dev' }, client: { version: '1.4.0' },
@@ -79,7 +79,7 @@ describe('starting and the first lines', () => {
       limits: { maxFileBytes: 64 * MIB, maxTotalBytes: 256 * MIB, maxDirBytes: 4 * 1024 * MIB, maxRecordBytes: MIB, minFreeBytes: 2 * 1024 * MIB, durationS: 3600 },
       masking: { rules: ['keys', 'args', 'text', 'rapid', 'values', 'final'], values: 2, derived: 2, weakValues: 0 },
     });
-    expect(frame).toMatchObject({ kind: 'frame', t: 0, frame: { type: 'snapshot', schemaVersion: '0.14' } });
+    expect(frame).toMatchObject({ kind: 'frame', t: 0, frame: { type: 'snapshot', schemaVersion: '0.15' } });
     expect(frame).not.toHaveProperty('resync');
     expect(c7).toEqual({ kind: 'controller', t: 0, id: 'rw7', systemId: 'SYS-7', generation: 'rws2', robotWare: '7.21.4+417', identityCheck: 'confirmed' });
     expect(c6).toEqual({ kind: 'controller', t: 0, id: 'rw6', systemId: null, generation: null, robotWare: null, identityCheck: 'unverified' });
@@ -189,6 +189,19 @@ describe('calls, sub events and the clock', () => {
     });
     expect(s.files.texts()[0]).not.toContain('Disc-Secret-9753');
     expect(s.files.texts()[0]).not.toContain('secret-station-id');
+  });
+
+  it('a RAPID value read from a symbol whose name names a secret is recorded without its value; any other value is recorded', async () => {
+    const s = setup();
+    await s.recorder.start({});
+    const sink = s.sink();
+    sink.call('manager', 'rw7', 'getRapidVariable', ['T_ROB1', 'Cell', 'ftpPassword'])!.done(ok('"ftp-pass-7531"'));
+    sink.call('manager', 'rw7', 'getRapidVariable', ['T_ROB1', 'Cell', 'partPresent'])!.done(ok('FALSE'));
+    await s.recorder.stop();
+    const calls = parseJsonl(s.files.texts()[0]!).filter(l => l.kind === 'call');
+    expect(calls[0]).toMatchObject({ method: 'getRapidVariable', args: ['T_ROB1', 'Cell', 'ftpPassword'], ok: true, result: { $omitted: 'secret' } });
+    expect(calls[1]).toMatchObject({ method: 'getRapidVariable', args: ['T_ROB1', 'Cell', 'partPresent'], result: 'FALSE' });
+    expect(s.files.texts()[0]).not.toContain('ftp-pass-7531');
   });
 
   it('stamps t at capture, not when the disk gets to it, and never lets it go back', async () => {

@@ -2,8 +2,8 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "urn:abb-rws-daemon:schema:v0",
   "title": "ControllerSnapshot",
-  "description": "The abb-rws-daemon wire format, major line 0, generated from the daemon's TypeScript types. Root: one ControllerSnapshot. Every type of the wire is under definitions (stream frames: StreamFrame). This file is the schema of version 0.14 exactly (x-schema-version). Validating strictly against it means \"this version exactly\": objects allow no other properties. A consumer built against an older version must not validate a newer daemon strictly. Changes within 0.x are usually additive, but breaking changes inside 0.x are possible; each is listed in x-breaking. Validate a recording or a fixture against the history file of the version it names (history/v<version>.schema.json). Units: x-unit on a number names its unit; x-unit-from names the sibling property that holds it. Times are ISO 8601 UTC (format date-time). x-ros-name is each property's field name on the ROS side.",
-  "x-schema-version": "0.14",
+  "description": "The abb-rws-daemon wire format, major line 0, generated from the daemon's TypeScript types. Root: one ControllerSnapshot. Every type of the wire is under definitions (stream frames: StreamFrame). This file is the schema of version 0.15 exactly (x-schema-version). Validating strictly against it means \"this version exactly\": objects allow no other properties. A consumer built against an older version must not validate a newer daemon strictly. Changes within 0.x are usually additive, but breaking changes inside 0.x are possible; each is listed in x-breaking. Validate a recording or a fixture against the history file of the version it names (history/v<version>.schema.json). Units: x-unit on a number names its unit; x-unit-from names the sibling property that holds it. Times are ISO 8601 UTC (format date-time). x-ros-name is each property's field name on the ROS side.",
+  "x-schema-version": "0.15",
   "x-breaking": [
     {
       "version": "0.11",
@@ -11,7 +11,7 @@
     }
   ],
   "x-constants": {
-    "SCHEMA_VERSION": "0.14",
+    "SCHEMA_VERSION": "0.15",
     "TOKEN_HEADER": "x-abb-rws-token",
     "TOKEN_PROTOCOL_PREFIX": "abb-rws-token.",
     "STREAM_PROTOCOL": "abb-rws.v0",
@@ -27,6 +27,11 @@
     "WATCH_LEASES_MAX": 32,
     "READS_IN_FLIGHT_MAX": 2,
     "READ_CACHE_MS": 2000,
+    "RAPID_VALUE_MAX": 16384,
+    "RAPID_VALUE_RESOURCE": {
+      "rws1": "/rw/rapid/symbol/data/RAPID/{task}/{module}/{symbol}",
+      "rws2": "/rw/rapid/symbol/RAPID/{task}/{module}/{symbol}/data"
+    },
     "STOP_WAIT_MS": 8000,
     "RECORDING_LABEL_PATTERN": "^[a-z0-9-]{1,32}$",
     "REPLAY_SPEED_MIN": 0.1,
@@ -1798,6 +1803,55 @@
         "kind",
         "text",
         "changeCount"
+      ],
+      "additionalProperties": false
+    },
+    "RapidSymbolValue": {
+      "description": "`GET /v0/controllers/:id/rapid/tasks/:task/modules/:module/symbols/:symbol`\n(added in schema 0.15): the current value of one RAPID data symbol (a VAR,\nPERS or CONST), read from the controller on request. On the controller's\nread budget like a module's source: may be up to READ_CACHE_MS old, and\nanswered 429 `READ_LIMIT` when the budget has no room. A symbol the\ncontroller does not find is 404 `RESOURCE_NOT_FOUND` (or\n`MODULE_NOT_FOUND`) with the controller's code; the code does not say\nwhether the module or the symbol was missing. A controller answer with no\nvalue text is 502 `VALUE_NOT_READ`: RobotWare 8.2.1 answers so for an array\nover its read limit, and RobotWare 7.21.4 for a variable of a type that has\nno printable value.",
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string",
+          "x-ros-name": "task"
+        },
+        "module": {
+          "type": "string",
+          "x-ros-name": "module"
+        },
+        "symbol": {
+          "type": "string",
+          "x-ros-name": "symbol"
+        },
+        "value": {
+          "description": "The value as the controller writes it in RAPID syntax (`42`, `TRUE`,\n`[1,2,3]`, a string in its double quotes). The daemon reads no type and\nconverts nothing. Never empty.",
+          "type": "string",
+          "x-ros-name": "value"
+        },
+        "truncated": {
+          "description": "True when `value` was cut at RAPID_VALUE_MAX characters: the rest was read and not served.",
+          "type": "boolean",
+          "x-ros-name": "truncated"
+        },
+        "resource": {
+          "description": "The resource read: RAPID_VALUE_RESOURCE of the generation the link speaks.",
+          "type": "string",
+          "x-ros-name": "resource"
+        },
+        "readAt": {
+          "description": "When the daemon received the value from the controller (an answer served\nfrom memory keeps the time of the read it shares).",
+          "type": "string",
+          "format": "date-time",
+          "x-ros-name": "read_at"
+        }
+      },
+      "required": [
+        "task",
+        "module",
+        "symbol",
+        "value",
+        "truncated",
+        "resource",
+        "readAt"
       ],
       "additionalProperties": false
     },

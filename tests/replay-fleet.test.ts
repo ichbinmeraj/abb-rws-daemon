@@ -5,7 +5,7 @@ import { NotRecordedError, ReplayModeError } from '../src/recording/contract.js'
 import { NOT_IN_RECORDING, ReplayFleet } from '../src/replay/fleet.js';
 import { parseRecording } from '../src/replay/reader.js';
 import { ReplayStream, type ReplaySocketHub, type ReplayStreamOptions } from '../src/replay/stream.js';
-import { NEW_LEASE, WATCH_LEASES_MAX, type ControllerEvent } from '../src/schema/v0.js';
+import { NEW_LEASE, RAPID_VALUE_RESOURCE, WATCH_LEASES_MAX, type ControllerEvent, type RapidSymbolValue } from '../src/schema/v0.js';
 import type { SocketLike } from '../src/wsHub.js';
 
 const START = '2026-10-04T15:30:12.000Z';
@@ -85,6 +85,11 @@ const RECORDING = [
   state(2000, { ioSignals: { added: [sig('do3')], changed: [sig('do1', '1')], removed: ['do2'] } }),
   call(2100, 'getModuleText', ['T_ROB1', 'Main'], { result: { text: 'MODULE Main\n  ! v2\nENDMODULE', changeCount: 4 } }),
   call(2200, 'getModuleText', ['T_ROB1', 'Gone'], { error: { code: 'RESOURCE_NOT_FOUND', message: 'no such module' } }),
+  call(2300, 'getRapidVariable', ['T_ROB1', 'Main', 'partPresent'], { result: 'FALSE' }),
+  call(2310, 'getRapidVariable', ['T_ROB1', 'Main', 'bigArray'], { result: '' }),
+  call(2320, 'getRapidVariable', ['T_ROB1', 'Main', 'gone'], { error: { code: 'RESOURCE_NOT_FOUND', message: 'Symbol not found' } }),
+  call(2330, 'getRapidVariable', ['T_ROB1', 'Main', 'ftpPassword'], { result: { $omitted: 'secret' } }),
+  call(2340, 'getRapidVariable', ['T_ROB1', 'user', 'reg1'], { result: '0' }, 'rw6'),
   delta(2500, 'rw7', { events: ctrl('rw7', { events: [ev(5), ev(6)] }).events }),
   delta(3000, 'rw7', { motion: ctrl('rw7').motion, io: ctrl('rw7', { io: ['do1', 'do9'] }).io }),
   { kind: 'gap', t: 3500, why: 'writer-behind', kinds: { call: 0, state: 2, sub: 0 } },
@@ -175,6 +180,35 @@ describe('ReplayFleet: module source', () => {
     expect((err as NotRecordedError).code).toBe('NOT_RECORDED');
     await expect(fleet.moduleSource('rw7', 'T_ROB1', 'Gone')).rejects.toThrow(/last read failed/);
     expect(await fleet.moduleSource('nobody', 'T_ROB1', 'Main')).toBeNull();
+  });
+});
+
+describe('ReplayFleet: RAPID values', () => {
+  it('the last recorded read at or before the position, with the resource of its generation and the time it was read', async () => {
+    const { fleet, stepTo } = setup({ time: 'recorded' });
+    await expect(fleet.rapidSymbol('rw7', 'T_ROB1', 'Main', 'partPresent')).rejects.toBeInstanceOf(NotRecordedError);
+    stepTo(2500);
+    expect(await fleet.rapidSymbol('rw7', 'T_ROB1', 'Main', 'partPresent')).toEqual({
+      task: 'T_ROB1', module: 'Main', symbol: 'partPresent', value: 'FALSE', truncated: false,
+      resource: RAPID_VALUE_RESOURCE.rws2, readAt: at(2300),
+    });
+  });
+
+  it('the read time moves with a shifted replay, as every other time does', async () => {
+    const { fleet, stepTo } = setup();
+    stepTo(2500);
+    expect((await fleet.rapidSymbol('rw7', 'T_ROB1', 'Main', 'partPresent')) as RapidSymbolValue)
+      .toMatchObject({ readAt: new Date(WALL0 - (2500 - 2300)).toISOString() });
+  });
+
+  it('a read with no value text is no-value, as live; a failed, never made or left-out read is NOT_RECORDED; an unknown controller is null', async () => {
+    const { fleet, stepTo } = setup();
+    stepTo(2500);
+    expect(await fleet.rapidSymbol('rw7', 'T_ROB1', 'Main', 'bigArray')).toBe('no-value');
+    await expect(fleet.rapidSymbol('rw7', 'T_ROB1', 'Main', 'gone')).rejects.toThrow(/last read failed/);
+    await expect(fleet.rapidSymbol('rw7', 'T_ROB1', 'Main', 'never')).rejects.toBeInstanceOf(NotRecordedError);
+    await expect(fleet.rapidSymbol('rw7', 'T_ROB1', 'Main', 'ftpPassword')).rejects.toThrow(/left out/);
+    expect(await fleet.rapidSymbol('nobody', 'T_ROB1', 'Main', 'partPresent')).toBeNull();
   });
 });
 

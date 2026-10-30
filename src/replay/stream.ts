@@ -189,6 +189,9 @@ export class ReplayStream implements StreamEndpoint, ReplayControl {
   /** The position (ms since the recording began). */
   positionMs(): number { return this.clock.position(); }
 
+  /** A recorded moment (ms since the recording began) as the time it was (ms since the epoch); mapAnswer moves it as it moves every time. */
+  recordedAtMs(t: number): number { return this.recording.sessionStartedAtMs + Math.round(t); }
+
   /** The moment answers made now stand for (ms since the epoch): the wall clock when shifted, the recording's own time otherwise. */
   answerNowMs(): number {
     const at = this.recording.sessionStartedAtMs + Math.round(this.clock.position());

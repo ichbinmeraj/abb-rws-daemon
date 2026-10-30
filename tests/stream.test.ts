@@ -67,7 +67,7 @@ describe('SnapshotStream', () => {
     const { sock } = setup([snap('rw6'), snap('rw8')]);
     const [first] = sock.frames();
     expect(first.type).toBe('snapshot');
-    expect(first.schemaVersion).toBe('0.14');
+    expect(first.schemaVersion).toBe('0.15');
     expect((first.controllers as unknown[]).length).toBe(2);
   });
 

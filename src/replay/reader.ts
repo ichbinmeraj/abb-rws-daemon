@@ -57,10 +57,12 @@ export interface RecordedCall {
   ok: boolean;
   /** The result as recorded (masked plain JSON); undefined for a failed call. */
   result: unknown;
+  /** The protocol generation the call went out on (`rws1`, `rws2`), as the record says; null when it names none. */
+  gen: 'rws1' | 'rws2' | null;
 }
 
 /** The client reads whose results a replay answers on-demand routes with. */
-const INDEXED_METHODS = new Set(['getModuleText', 'listModulesDetailed', 'searchSignals']);
+const INDEXED_METHODS = new Set(['getModuleText', 'listModulesDetailed', 'searchSignals', 'getRapidVariable']);
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -96,12 +98,12 @@ export class RecordingIndex {
   private readonly ioNames = new Map<string, Set<string>>();
 
   /** A manager call, in recording order; only the reads the routes answer from are kept. */
-  addCall(id: string, method: string, args: readonly unknown[], t: number, ok: boolean, result: unknown): void {
+  addCall(id: string, method: string, args: readonly unknown[], t: number, ok: boolean, result: unknown, gen: unknown = null): void {
     if (!INDEXED_METHODS.has(method)) { return; }
     const key = callKey(id, method, args);
     let list = this.calls.get(key);
     if (!list) { list = []; this.calls.set(key, list); }
-    list.push({ t, ok, result: ok ? result : undefined });
+    list.push({ t, ok, result: ok ? result : undefined, gen: gen === 'rws1' || gen === 'rws2' ? gen : null });
   }
 
   /** The last call of `method` with these arguments on `id` that settled at or before `at`; null when none did. */
@@ -333,7 +335,7 @@ export function parseRecording(parts: readonly RecordingPartText[], opts: ParseO
         }
         case 'call':
           if (rec.target === 'manager' && typeof rec.id === 'string' && Array.isArray(rec.args)) {
-            index.addCall(rec.id, rec.method as string, rec.args, t, rec.ok as boolean, rec.result);
+            index.addCall(rec.id, rec.method as string, rec.args, t, rec.ok as boolean, rec.result, rec.gen);
           }
           break;
         case 'state':

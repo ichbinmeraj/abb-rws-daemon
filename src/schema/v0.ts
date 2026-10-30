@@ -114,9 +114,19 @@
  * either name itself. Additive: `kind`, `name` and `application` keep their
  * meaning and still carry the controller's own words.
  *
+ * 0.15: a RAPID value on request. `GET
+ * /v0/controllers/:id/rapid/tasks/:task/modules/:module/symbols/:symbol`
+ * (`RapidSymbolValue`) reads the current value of one RAPID data symbol on
+ * the controller's read budget, like a module's source: 429 `READ_LIMIT`
+ * when the budget has no room, 409 on a link to the wrong controller. The
+ * value is the controller's own text, never converted; an answer with no
+ * value text is 502 `VALUE_NOT_READ`, never an empty value. The answer names
+ * the RWS resource it was read from (RAPID_VALUE_RESOURCE) and when. Additive:
+ * the snapshot, the frames and the other routes keep their shape.
+ *
  * @breaking 0.11 discovery source `entered` renamed `manual`
  */
-export const SCHEMA_VERSION = '0.14' as const;
+export const SCHEMA_VERSION = '0.15' as const;
 
 /**
  * The request header that carries the daemon's access token (added in schema
@@ -994,6 +1004,59 @@ export interface RapidModuleSource {
    * @unit count
    */
   changeCount: number | null;
+}
+
+/**
+ * The most characters of a RAPID value that `RapidSymbolValue` carries; a
+ * longer value is cut to this many and marked `truncated`. Added in schema
+ * 0.15.
+ */
+export const RAPID_VALUE_MAX = 16_384;
+
+/**
+ * The RWS resource a RAPID value is read from, per protocol generation, as a
+ * template: RWS 2.0 puts `data` after the symbol's path, RWS 1.0 before it.
+ * A fixed text of the daemon's own: nothing in it comes from the controller.
+ * Added in schema 0.15.
+ */
+export const RAPID_VALUE_RESOURCE = {
+  rws1: '/rw/rapid/symbol/data/RAPID/{task}/{module}/{symbol}',
+  rws2: '/rw/rapid/symbol/RAPID/{task}/{module}/{symbol}/data',
+} as const;
+
+/**
+ * `GET /v0/controllers/:id/rapid/tasks/:task/modules/:module/symbols/:symbol`
+ * (added in schema 0.15): the current value of one RAPID data symbol (a VAR,
+ * PERS or CONST), read from the controller on request. On the controller's
+ * read budget like a module's source: may be up to READ_CACHE_MS old, and
+ * answered 429 `READ_LIMIT` when the budget has no room. A symbol the
+ * controller does not find is 404 `RESOURCE_NOT_FOUND` (or
+ * `MODULE_NOT_FOUND`) with the controller's code; the code does not say
+ * whether the module or the symbol was missing. A controller answer with no
+ * value text is 502 `VALUE_NOT_READ`: RobotWare 8.2.1 answers so for an array
+ * over its read limit, and RobotWare 7.21.4 for a variable of a type that has
+ * no printable value.
+ */
+export interface RapidSymbolValue {
+  task: string;
+  module: string;
+  symbol: string;
+  /**
+   * The value as the controller writes it in RAPID syntax (`42`, `TRUE`,
+   * `[1,2,3]`, a string in its double quotes). The daemon reads no type and
+   * converts nothing. Never empty.
+   */
+  value: string;
+  /** True when `value` was cut at RAPID_VALUE_MAX characters: the rest was read and not served. */
+  truncated: boolean;
+  /** The resource read: RAPID_VALUE_RESOURCE of the generation the link speaks. */
+  resource: string;
+  /**
+   * When the daemon received the value from the controller (an answer served
+   * from memory keeps the time of the read it shares).
+   * @format date-time
+   */
+  readAt: string;
 }
 
 /**

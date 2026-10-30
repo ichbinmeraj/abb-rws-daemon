@@ -96,7 +96,8 @@ export type TimedDefinition =
   | 'SnapshotFrame' | 'DeltaFrame' | 'RemovedFrame' | 'ControllerList' | 'EventsPage'
   | 'ControllerSnapshot' | 'DeltaGroups' | 'IdentityGroup' | 'LinkGroup' | 'ReconnectInfo' | 'PanelGroup' | 'RapidGroup'
   | 'MotionGroup' | 'IoGroup' | 'IoWatchedSignal' | 'EventsGroup' | 'ControllerEvent' | 'EventTime' | 'EventClock'
-  | 'AccessGroup' | 'AccessLockInfo' | 'RmmpInfo' | 'CapabilitiesGroup' | 'FreshnessGroup' | 'GroupFreshness';
+  | 'AccessGroup' | 'AccessLockInfo' | 'RmmpInfo' | 'CapabilitiesGroup' | 'FreshnessGroup' | 'GroupFreshness'
+  | 'RapidSymbolValue';
 
 interface TimedShape {
   /** Properties that are date-times. */
@@ -139,11 +140,12 @@ export const TIMED_DEFINITIONS: Readonly<Record<TimedDefinition, TimedShape>> = 
   CapabilitiesGroup: { times: ['asOf'], nested: {} },
   FreshnessGroup: { times: [], nested: { groups: { def: 'GroupFreshness', array: true } } },
   GroupFreshness: { times: ['asOf'], nested: {} },
+  RapidSymbolValue: { times: ['readAt'], nested: {} },
 };
 
-/** The definitions a replay serves whole: the three frames, the controller list and one controller, an events page. */
+/** The definitions a replay serves whole: the three frames, the controller list and one controller, an events page, a RAPID value. */
 export const REPLAY_TIME_ROOTS: readonly TimedDefinition[] = [
-  'SnapshotFrame', 'DeltaFrame', 'RemovedFrame', 'ControllerList', 'ControllerSnapshot', 'EventsPage',
+  'SnapshotFrame', 'DeltaFrame', 'RemovedFrame', 'ControllerList', 'ControllerSnapshot', 'EventsPage', 'RapidSymbolValue',
 ];
 
 /**

@@ -220,7 +220,7 @@ describe('schema frames: what the daemon serves', () => {
   }, 60_000);
 
   it('the schema the frames are held to is the daemon\'s own version, with the three groups of 0.13', () => {
-    expect(SCHEMA_VERSION).toBe('0.14');
+    expect(SCHEMA_VERSION).toBe('0.15');
     for (const name of ['AccessGroup', 'CapabilitiesGroup', 'FreshnessGroup']) { expect(history.definitions[name], name).toBeDefined(); }
   });
 });

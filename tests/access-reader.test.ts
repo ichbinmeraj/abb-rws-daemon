@@ -6,7 +6,7 @@ import type { ControllerConfig } from '../src/config.js';
 import type { ControllerFleet, Log } from '../src/fleet.js';
 import type { ClientTapSink } from '../src/recording/contract.js';
 import { registerControllerRoutes } from '../src/routes.js';
-import { ACCESS_READ_MS, ACCESS_READ_SLOW_MS, type AccessLockInfo, type ControllerSnapshot } from '../src/schema/v0.js';
+import { ACCESS_READ_MS, ACCESS_READ_SLOW_MS, SCHEMA_VERSION, type AccessLockInfo, type ControllerSnapshot } from '../src/schema/v0.js';
 import { SnapshotStream } from '../src/stream.js';
 import { SocketHub } from '../src/wsHub.js';
 import { ID, T0, cfg, fleetOver, world, type FakeGeneration, type World, type WorldOptions } from './helpers/fake-fleet.js';
@@ -858,7 +858,7 @@ describe('access reader: announcing', () => {
   // On real time: Fastify compiles the routes' snapshot schemas when the app
   // starts, about 0.5 s alone and past the 5 s default under a full parallel
   // run. Nothing in it waits on a clock, so a longer budget is all it needs.
-  it('the routes carry the groups: GET /v0/controllers and GET /v0/controllers/:id, under schema 0.14, with no new route', async () => {
+  it('the routes carry the groups: GET /v0/controllers and GET /v0/controllers/:id, under the current schema, with no new route for access', async () => {
     const { f, w } = await connected({ generation: 'rw6' });
     w.access.mastership.motion = { mastership: 'local', uid: PLANTED_UID, application: 'FlexPendant' };
     f.startAccessReader(TICK);
@@ -872,7 +872,7 @@ describe('access reader: announcing', () => {
     });
     try {
       const list = (await app.inject({ method: 'GET', url: '/v0/controllers' })).json<{ schemaVersion: string; controllers: ControllerSnapshot[] }>();
-      expect(list.schemaVersion).toBe('0.14');
+      expect(list.schemaVersion).toBe(SCHEMA_VERSION);
       const one = (await app.inject({ method: 'GET', url: `/v0/controllers/${ID}` })).json<ControllerSnapshot>();
       for (const snap of [list.controllers[0], one]) {
         expect(snap.access).toMatchObject({ generation: 'rw6', model: 'mastership', via: 'poll', problem: null });

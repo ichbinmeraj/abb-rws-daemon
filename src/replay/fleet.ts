@@ -6,8 +6,10 @@ import { ANONYMOUS_LEASE, leaseIdField, leaseKeyFor, leaseLimitReached } from '.
 import { MOTION_LEASE_MS, motionTargetHz } from '../motion.js';
 import { NotRecordedError, ReplayModeError } from '../recording/contract.js';
 import type { StreamSource } from '../stream.js';
-import type {
-  ControllerSnapshot, EventsPage, IoWatch, LinkQuality, MotionWatch, RapidModuleSource,
+import {
+  RAPID_VALUE_MAX, RAPID_VALUE_RESOURCE,
+  type ControllerSnapshot, type EventsPage, type IoWatch, type LinkQuality, type MotionWatch, type RapidModuleSource,
+  type RapidSymbolValue,
 } from '../schema/v0.js';
 import type { RecordingIndex } from './reader.js';
 import type { ReplayStream } from './stream.js';
@@ -32,6 +34,9 @@ const incomplete = (v: unknown): boolean =>
  * - A module's source: the last recorded read of that module (with the
  *   task's module listing, for its kind) at or before the position; else
  *   NotRecordedError (404 `NOT_RECORDED`).
+ * - A RAPID value: the last recorded read of that symbol at or before the
+ *   position, with the time it was read; else NotRecordedError. A value the
+ *   recording left out (a symbol whose name names a secret) is not an answer.
  * - The signal table: the client's table as recorded at the position (or
  *   `not-loaded`, as live); a search: a recorded search with equal criteria.
  *   Never an older answer than the position: NotRecordedError instead.
@@ -106,6 +111,28 @@ export class ReplayFleet implements FleetLike, StreamSource {
       text: result.text,
       changeCount: typeof result.changeCount === 'number' ? result.changeCount : null,
     };
+  }
+
+  async rapidSymbol(id: string, task: string, module: string, symbol: string): Promise<RapidSymbolValue | null | 'no-value'> {
+    if (!this.has(id)) { return null; }
+    const at = this.replay.positionMs();
+    const read = this.index.latestCall(id, 'getRapidVariable', [task, module, symbol], at);
+    // The resource of the generation the read went out on, as the record says: without it the answer could not name one.
+    const generation = read?.gen ?? null;
+    if (!read || !read.ok || typeof read.result !== 'string' || generation === null) {
+      throw new NotRecordedError(!read
+        ? `the recording holds no value of ${task}/${module}/${symbol} on "${id}" at this point`
+        : `the recording holds no readable value of ${task}/${module}/${symbol} on "${id}" at this point (the last read failed or was left out)`);
+    }
+    if (read.result.length === 0) { return 'no-value'; }
+    const truncated = read.result.length > RAPID_VALUE_MAX;
+    const answer: RapidSymbolValue = {
+      task, module, symbol,
+      value: truncated ? read.result.slice(0, RAPID_VALUE_MAX) : read.result,
+      truncated, resource: RAPID_VALUE_RESOURCE[generation],
+      readAt: new Date(this.replay.recordedAtMs(read.t)).toISOString(),
+    };
+    return this.replay.mapAnswer('RapidSymbolValue', answer);
   }
 
   watchMotion(id: string, leaseId?: string): MotionWatch | null | 'lease-limit' {

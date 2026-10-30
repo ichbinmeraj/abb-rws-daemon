@@ -96,6 +96,12 @@ export function world(opts: WorldOptions = {}) {
    */
   const controller = { port: 9403, sysid: RW7_ID as string | null };
 
+  /**
+   * What a RAPID value read answers, by `task/module/symbol`: the value text
+   * the client hands back, or an Error to throw. A symbol not listed reads `0`.
+   */
+  const rapid = { values: {} as Record<string, string | Error>, ms: 5 };
+
   /** The client's own account of access once connected, as `RobotState.access` carries it. */
   const clientAccess = (generation: FakeGeneration | null) => ({
     generation,
@@ -149,6 +155,13 @@ export function world(opts: WorldOptions = {}) {
     getMotionPointer(task: string) { return this.request('getMotionPointer', [task], () => ({ module: 'MainModule', routine: 'main', row: 4 })); }
     getModuleText(task: string, module: string) {
       return this.request('getModuleText', [task, module], () => ({ text: `MODULE ${module}\nENDMODULE`, changeCount: 1 }));
+    }
+    getRapidVariable(task: string, module: string, symbol: string) {
+      return this.request('getRapidVariable', [task, module, symbol], () => {
+        const v = rapid.values[`${task}/${module}/${symbol}`] ?? '0';
+        if (v instanceof Error) { throw v; }
+        return v;
+      }, rapid.ms);
     }
     listModulesDetailed(task: string) {
       return this.request('listModulesDetailed', [task], () => [{ name: 'BASE', type: 'SysMod' }, { name: 'MainModule', type: 'ProgMod' }]);
@@ -270,7 +283,7 @@ export function world(opts: WorldOptions = {}) {
     multi.changed(id);
   };
 
-  return { log, multi, robots, access, controller, manager: (id: string) => raws.get(id)!, quality, drop, set };
+  return { log, multi, robots, access, controller, rapid, manager: (id: string) => raws.get(id)!, quality, drop, set };
 }
 
 export type World = ReturnType<typeof world>;

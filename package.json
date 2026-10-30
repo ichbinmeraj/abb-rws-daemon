@@ -1,6 +1,6 @@
 {
   "name": "abb-rws-daemon",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local daemon exposing ABB robot controllers as a typed ControllerSnapshot over HTTP and WebSocket. RWS 1.0 (IRC5) and RWS 2.0 (OmniCore).",
   "license": "Apache-2.0",
   "author": {
@@ -69,7 +69,7 @@
   },
   "dependencies": {
     "@fastify/websocket": "^11.3.1",
-    "abb-rws-client": "^1.5.1",
+    "abb-rws-client": "^1.5.3",
     "fastify": "^5.12.5"
   },
   "devDependencies": {

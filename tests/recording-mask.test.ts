@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { MultiRobotManager, RobotManager, RwsError } from 'abb-rws-client';
 import { isSecretKey } from '../src/errorMap.js';
 import {
-  CALL_RESULT_DROPPED_KEYS, MASK, SECRET_ARGS, SERIAL_ARRAY_MAX, SecretValues, holdsSecret, isSecretMethod, maskCallArgs, maskFrame, maskJson,
-  maskRapidSecrets, maskRecordValue, maskValuesEverywhere, toPlainJson, type Json,
+  CALL_RESULT_DROPPED_KEYS, MASK, RAPID_VALUE_READS, SECRET_ARGS, SERIAL_ARRAY_MAX, SecretValues, holdsSecret, isSecretMethod, isSecretRapidValue,
+  maskCallArgs, maskFrame, maskJson, maskRapidSecrets, maskRecordValue, maskValuesEverywhere, toPlainJson, type Json,
 } from '../src/recording/mask.js';
 import { snapshotOf } from './helpers/recording-fakes.js';
 
@@ -226,6 +226,19 @@ describe('rule 3b: RAPID literals', () => {
     expect(text).toContain('pwd := "***" + "***";');
     expect(masked).toBe(5);
     for (const s of ['ftp-secret-01', 'first-secret', 'second-secret', 'late-secret']) { expect(text).not.toContain(s); }
+  });
+
+  it('a RAPID value read from a secret-named symbol is left out whole; other reads and other methods are not', () => {
+    expect(RAPID_VALUE_READS).toEqual({ getRapidVariable: 2 });
+    for (const symbol of ['ftpPassword', 'password', 'pwd', 'adminPin', 'apiKey']) {
+      expect(isSecretRapidValue('getRapidVariable', ['T_ROB1', 'Cell', symbol]), symbol).toBe(true);
+    }
+    for (const symbol of ['partPresent', 'spin', 'reg1', 'tokenizer']) {
+      expect(isSecretRapidValue('getRapidVariable', ['T_ROB1', 'Cell', symbol]), symbol).toBe(false);
+    }
+    expect(isSecretRapidValue('getModuleText', ['T_ROB1', 'password'])).toBe(false);   // a module's text: rule 3b
+    expect(isSecretRapidValue('getRapidVariable', MASK)).toBe(false);
+    expect(isSecretRapidValue('getRapidVariable', ['T_ROB1'])).toBe(false);
   });
 });
 

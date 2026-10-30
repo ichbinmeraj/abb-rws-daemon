@@ -6,6 +6,33 @@ All notable changes to abb-rws-daemon are listed in this file. The format follow
 version may change the routes under `/v0`. The snapshot schema has a version of its
 own; see [schema/README.md](schema/README.md).
 
+## [0.1.1] - 2026-10-30
+
+A read of RAPID values. The daemon is still read-only: the new route reads, and
+nothing changes on a controller.
+
+### Added
+
+- **RAPID values.**
+  `GET /v0/controllers/:id/rapid/tasks/:task/modules/:module/symbols/:symbol` reads
+  the value of one data symbol and answers it as the controller writes it, as RAPID
+  text, with the controller resource it was read from and when. It is on the
+  controller's read budget, as a module's source is. A value longer than 16384
+  characters is cut there and says `truncated: true`. When the controller answers
+  the read with no value at all, as it does for an array over its read limit and for
+  a type with no printable value, the route gives 502 `VALUE_NOT_READ` and never an
+  empty value. A symbol or a module the controller does not know gives 404
+  `RESOURCE_NOT_FOUND`.
+- **Snapshot schema 0.15.** It adds the answer type `RapidSymbolValue`. The snapshot
+  and the stream frames are the same as in 0.14.
+- **Recording and replay.** A recording keeps the value reads, and leaves out the
+  value of a secret-named symbol. A replay answers the value route from the
+  recording, and says so when the recording holds no value for that symbol.
+
+### Changed
+
+- abb-rws-client 1.5.3 (was 1.5.1).
+
 ## [0.1.0] - 2026-10-25
 
 The first release. It is read-only: the daemon changes nothing on a controller.

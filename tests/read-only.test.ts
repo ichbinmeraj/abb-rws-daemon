@@ -16,6 +16,7 @@ import { ID, T0, cfg, fleetOver, world, type FakeGeneration, type WorldOptions }
 const READS: readonly string[] = [
   'getProgramPointer', 'getMotionPointer',            // pointers
   'getModuleText', 'listModulesDetailed',             // module text and listing
+  'getRapidVariable',                                 // a RAPID value
   'readIoSignal', 'searchSignals',                    // signal read and search
   'getMechunitDetails',                               // mechanical unit
   'getCfgInstance',                                   // configuration instance
@@ -163,6 +164,9 @@ async function guardedLifetime(opts: WorldOptions) {
   const reads = Promise.all([f.moduleSource(ID, 'T_ROB1', 'MainModule'), f.searchIoSignals(ID, { name: 'do' })]);
   await vi.advanceTimersByTimeAsync(100);
   await reads;
+  const value = f.rapidSymbol(ID, 'T_ROB1', 'MainModule', 'partPresent');
+  await vi.advanceTimersByTimeAsync(100);
+  await value;
   w.manager(ID).fire('/rw/iosystem/signals/do_a;state', '1');
   w.set(ID, { execstate: 'stopped', opmode: 'MANR' });
   await vi.advanceTimersByTimeAsync(ACCESS_READ_MS + 1_000);
@@ -187,12 +191,12 @@ async function guardedLifetime(opts: WorldOptions) {
 
 /** What a lifetime must have reached for, per generation, to count as "every poller ran". */
 const EXPECTED: Record<FakeGeneration, string[]> = {
-  rw6: ['getProgramPointer', 'getMotionPointer', 'getModuleText', 'listModulesDetailed', 'readIoSignal', 'searchSignals', 'getMechunitDetails',
+  rw6: ['getProgramPointer', 'getMotionPointer', 'getModuleText', 'listModulesDetailed', 'getRapidVariable', 'readIoSignal', 'searchSignals', 'getMechunitDetails',
     'getCfgInstance', 'getJointTargetFull', 'getCartesianFull', 'getEventLog', 'getControllerClock', 'getMastershipStatus', 'getRmmpPrivilege'],
-  rw7: ['getProgramPointer', 'getMotionPointer', 'getModuleText', 'listModulesDetailed', 'readIoSignal', 'searchSignals', 'getMechunitDetails',
+  rw7: ['getProgramPointer', 'getMotionPointer', 'getModuleText', 'listModulesDetailed', 'getRapidVariable', 'readIoSignal', 'searchSignals', 'getMechunitDetails',
     'getCfgInstance', 'getJointTargetFull', 'getCartesianFull', 'getEventLog', 'getControllerClock', 'getMastershipStatus', 'getRmmpPrivilege',
     'onSubscriptionEvent', 'updateSubscriptionGroup', 'unsubscribeResource'],
-  rw8: ['getProgramPointer', 'getMotionPointer', 'getModuleText', 'listModulesDetailed', 'readIoSignal', 'searchSignals', 'getMechunitDetails',
+  rw8: ['getProgramPointer', 'getMotionPointer', 'getModuleText', 'listModulesDetailed', 'getRapidVariable', 'readIoSignal', 'searchSignals', 'getMechunitDetails',
     'getCfgInstance', 'getJointTargetFull', 'getCartesianFull', 'getEventLog', 'getControllerClock', 'getWriteAccessStatus',
     'onSubscriptionEvent', 'updateSubscriptionGroup', 'unsubscribeResource'],
 };
@@ -342,7 +346,7 @@ describe('read-only (b): no source file calls a client method that changes anyth
   it('it read the daemon\'s sources: the fleet, with its reads, is among them', () => {
     expect(files.length).toBeGreaterThan(30);
     expect(calls.get('fleet.ts')).toBeDefined();
-    for (const method of ['getMastershipStatus', 'getRmmpPrivilege', 'getWriteAccessStatus', 'getEventLog', 'readIoSignal']) {
+    for (const method of ['getMastershipStatus', 'getRmmpPrivilege', 'getWriteAccessStatus', 'getEventLog', 'readIoSignal', 'getRapidVariable']) {
       expect(calls.get('fleet.ts'), method).toContain(method);
     }
     expect(CLIENT_METHODS.size).toBeGreaterThan(200);
@@ -416,6 +420,7 @@ describe('read-only (b): no source file calls a client method that changes anyth
       'GET /v0/controllers/:id/events',
       'GET /v0/controllers/:id/io/signals',
       'GET /v0/controllers/:id/rapid/tasks/:task/modules/:module',
+      'GET /v0/controllers/:id/rapid/tasks/:task/modules/:module/symbols/:symbol',
       'POST /v0/controllers/:id/io/watch',
       'POST /v0/controllers/:id/motion/watch',
     ]);

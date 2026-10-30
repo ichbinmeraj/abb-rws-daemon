@@ -70,7 +70,7 @@ export {
   recordingSessionName, recordingPartName,
 } from './recording/writer.js';
 export {
-  MASK, MASKING_RULES, SecretValues, toPlainJson, maskFrame, maskRecordValue, maskRapidSecrets, isSecretMethod, type Json,
+  MASK, MASKING_RULES, SecretValues, toPlainJson, maskFrame, maskRecordValue, maskRapidSecrets, isSecretMethod, isSecretRapidValue, RAPID_VALUE_READS, type Json,
 } from './recording/mask.js';
 export { ClientTap, tapObject, tapFunction, type SinkSource } from './recording/tap.js';
 export {
