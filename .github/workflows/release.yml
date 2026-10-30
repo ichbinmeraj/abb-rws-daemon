@@ -1,0 +1,150 @@
+name: Release
+
+# Publishes a tagged release to npm through trusted publishing (OpenID Connect). No npm
+# token is stored anywhere. The npm side is a trusted publisher on the abb-rws-daemon package
+# that names this repository, this file (release.yml) and the environment "npm". The
+# environment holds the gate: Meraj as required reviewer, and deployments only from tags v*.
+#
+# Two jobs. "package" builds and tests the tagged commit the way CI does, packs the tarball
+# and uploads it with its sha1 and sha256. "publish" waits for the approval in the
+# environment, checks the sha256 again and publishes that uploaded file, not a new build.
+# Before approving, the owner can download the artifact and compare its checksums.
+#
+# Run it by hand (workflow_dispatch) with dry_run on to see the package job alone. Nothing
+# is published then.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Package and test only, publish nothing'
+        type: boolean
+        default: true
+
+# One release at a time. A second tag waits instead of racing the first.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # The npm that publishes. Trusted publishing needs npm 11.5.1 or later and Node 22.14.0 or
+  # later. An exact version, never a range.
+  NPM_PUBLISH: 'npm@11.21.1'
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      tarball: ${{ steps.pack.outputs.tarball }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # A tag must be v plus the version in package.json, on master or on its release branch.
+      # A run by hand that would publish must start from a tag too.
+      - name: Guard the tag
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            [ "$GITHUB_REF_NAME" = "v$version" ] || { echo "tag $GITHUB_REF_NAME is not v$version from package.json"; exit 1; }
+            git merge-base --is-ancestor "$GITHUB_SHA" origin/master \
+              || git merge-base --is-ancestor "$GITHUB_SHA" "origin/release/$version" \
+              || { echo "$GITHUB_REF_NAME ($GITHUB_SHA) is on neither master nor release/$version"; exit 1; }
+          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$DRY_RUN" != "true" ]; then
+            echo "a publish starts from a tag, and $GITHUB_REF_NAME is a branch: run it with dry_run on"; exit 1
+          fi
+          echo "version $version from $GITHUB_REF_NAME ($GITHUB_SHA)"
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      # npm runs no scripts when it publishes a tarball, so prepublishOnly does not run in the
+      # publish job. The release rules run here instead. The private deny list stays with the
+      # owner, who runs it before the push.
+      - run: node scripts/release-check.mjs --release
+      # Built and tested above, so the pack skips prepack instead of doing both again.
+      - name: Pack
+        id: pack
+        run: |
+          npm pack --ignore-scripts --json > pack.json
+          tarball="$(node -p "require('./pack.json')[0].filename")"
+          shasum="$(node -p "require('./pack.json')[0].shasum")"
+          integrity="$(node -p "require('./pack.json')[0].integrity")"
+          [ -f "$tarball" ] || { echo "no $tarball"; exit 1; }
+          sha1="$(sha1sum "$tarball" | cut -d' ' -f1)"
+          sha256="$(sha256sum "$tarball" | cut -d' ' -f1)"
+          [ "$sha1" = "$shasum" ] || { echo "sha1 $sha1 is not npm's shasum $shasum"; exit 1; }
+          echo "tarball $tarball"
+          echo "shasum (sha1) $sha1"
+          echo "sha256 $sha256"
+          echo "integrity $integrity"
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+          {
+            echo "### $tarball"
+            echo "- commit: $GITHUB_SHA ($GITHUB_REF_NAME)"
+            echo "- size: $(stat -c %s "$tarball") bytes"
+            echo "- shasum (sha1): \`$sha1\`"
+            echo "- sha256: \`$sha256\`"
+            echo "- integrity: \`$integrity\`"
+            echo "- Before approving the npm environment, the owner can download the artifact \"package\" and compare these."
+          } >> "$GITHUB_STEP_SUMMARY"
+      # The proof that the installed command starts. ABB_RWS_DAEMON_RECORD is set as in CI: a
+      # daemon refuses to start with it, so a --version that started one fails at once.
+      - env:
+          ABB_RWS_DAEMON_RECORD: '1'
+        run: |
+          npm install -g "./${{ steps.pack.outputs.tarball }}"
+          abb-rws-daemon --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: ${{ steps.pack.outputs.tarball }}
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: package
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Required reviewer (Meraj) and the tag rule live in this environment's settings.
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+      # The file published is the file the package job uploaded.
+      - name: Same file as packaged
+        env:
+          TARBALL: ${{ needs.package.outputs.tarball }}
+          SHA256: ${{ needs.package.outputs.sha256 }}
+        run: echo "$SHA256  $TARBALL" | sha256sum -c -
+      - name: npm that can publish through OIDC
+        run: |
+          npm install -g "$NPM_PUBLISH"
+          node --version
+          npm --version
+      - name: Publish to npm (trusted publishing)
+        env:
+          TARBALL: ${{ needs.package.outputs.tarball }}
+        run: npm publish "./$TARBALL" --provenance --access public
